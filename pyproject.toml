@@ -1,0 +1,44 @@
+[project]
+name = "ragchat"
+version = "0.1.0"
+description = "RAG Chat — chat with local LLM over your documents"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # ── Dipendenze cross-platform (sempre richieste) ──────────────────────────
+    "langchain",
+    "langchain-community",
+    "langchain-huggingface",
+    "faiss-cpu",
+    "docling",
+    "huggingface-hub",
+    "sentence-transformers",
+
+    # ── Dipendenze Windows (sys_platform == "win32") ──────────────────────────
+    # torch: wheel CPU-only per Windows AMD64 (vedi [tool.uv.sources])
+    "torch ; sys_platform == 'win32'",
+    # llama-cpp-python: wheel precompilato CPU-only per Windows AMD64
+    # (vedi [tool.uv.sources]). Su altre piattaforme installare con:
+    #   pip install llama-cpp-python
+    # o compilare da sorgente.
+    "llama-cpp-python ; sys_platform == 'win32'",
+]
+
+# ── Note sui prerequisiti di sistema ─────────────────────────────────────────
+# Windows: le VC++ 2022 runtime DLL (MSVCP140, VCRUNTIME140, VCRUNTIME140_1)
+#   sono incluse nel progetto in src/prova/vendor/win_runtime/ e caricate
+#   automaticamente all'avvio — nessuna installazione di sistema richiesta.
+# Linux/macOS: nessun prerequisito aggiuntivo oltre a Python 3.12.
+
+[tool.uv.sources]
+# torch: wheel CPU-only ufficiale PyTorch per Windows x64 + Python 3.12
+torch = { url = "https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-win_amd64.whl" }
+# llama-cpp-python: wheel precompilato CPU-only per Windows x64 (Python 3-universal)
+llama-cpp-python = { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35/llama_cpp_python-0.3.35-py3-none-win_amd64.whl" }
+
+[project.scripts]
+ragchat = "ragchat:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
