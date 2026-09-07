@@ -1,7 +1,8 @@
-import tkinter as tk
-from tkinter import ttk, scrolledtext
-import threading
 import logging
+import queue
+import threading
+import tkinter as tk
+from tkinter import scrolledtext, ttk
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +12,17 @@ class ChatPanel(tk.Frame):
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
+
         self._rag_chain = None
+
+        # Coda per trasferire callback dal thread worker al thread GUI.
+        # Tkinter non deve essere manipolato direttamente da thread secondari.
+        self._ui_queue = queue.Queue()
+
         self._build_ui()
+
+        # Avvia il polling della coda nel thread GUI.
+        self.after(50, self._process_ui_queue)
 
     # ------------------------------------------------------------------
     # UI
@@ -23,8 +33,18 @@ class ChatPanel(tk.Frame):
         self.rowconfigure(1, weight=1)
 
         # Titolo
-        title = tk.Label(self, text="💬 Chat", font=(None, 12, "bold"))
-        title.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        title = tk.Label(
+            self,
+            text="💬 Chat",
+            font=(None, 12, "bold"),
+        )
+        title.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=8,
+            pady=(8, 4),
+        )
 
         # Area cronologia
         self._history = scrolledtext.ScrolledText(
@@ -35,37 +55,95 @@ class ChatPanel(tk.Frame):
             relief=tk.FLAT,
             font=(None, 11),
         )
-        self._history.tag_config("user", foreground="#1a3a5c", font=(None, 11, "bold"))
-        self._history.tag_config("assistant", foreground="#1a4a2a", font=(None, 11))
-        self._history.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+
+        self._history.tag_config(
+            "user",
+            foreground="#1a3a5c",
+            font=(None, 11, "bold"),
+        )
+
+        self._history.tag_config(
+            "assistant",
+            foreground="#1a4a2a",
+            font=(None, 11),
+        )
+
+        self._history.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=8,
+            pady=4,
+        )
 
         # Label stato (nascosta di default)
         self._status_var = tk.StringVar(value="")
+
         self._status_label = tk.Label(
-            self, textvariable=self._status_var, anchor="w", foreground="#888888"
+            self,
+            textvariable=self._status_var,
+            anchor="w",
+            foreground="#888888",
         )
-        self._status_label.grid(row=2, column=0, sticky="ew", padx=8)
+
+        self._status_label.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=8,
+        )
+
         self._status_label.grid_remove()
 
         # Frame input
         input_frame = tk.Frame(self)
-        input_frame.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 8))
+
+        input_frame.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=8,
+            pady=(4, 8),
+        )
+
         input_frame.columnconfigure(0, weight=1)
 
         self._input_var = tk.StringVar()
-        self._entry = ttk.Entry(input_frame, textvariable=self._input_var)
-        self._entry.grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        self._entry.bind("<Return>", lambda _e: self._on_send())
 
-        self._send_btn = ttk.Button(input_frame, text="Invia", command=self._on_send)
-        self._send_btn.grid(row=0, column=1)
+        self._entry = ttk.Entry(
+            input_frame,
+            textvariable=self._input_var,
+        )
+
+        self._entry.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(0, 4),
+        )
+
+        self._entry.bind(
+            "<Return>",
+            lambda _e: self._on_send(),
+        )
+
+        self._send_btn = ttk.Button(
+            input_frame,
+            text="Invia",
+            command=self._on_send,
+        )
+
+        self._send_btn.grid(
+            row=0,
+            column=1,
+        )
 
     # ------------------------------------------------------------------
     # API pubblica
     # ------------------------------------------------------------------
 
     def set_rag_chain(self, chain):
-        """Aggiorna il riferimento alla RAGChain (chiamato quando cambia il DB)."""
+        """Aggiorna il riferimento alla RAGChain."""
         self._rag_chain = chain
 
     # ------------------------------------------------------------------
@@ -73,7 +151,9 @@ class ChatPanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _on_send(self):
+        """Gestisce l'invio di una domanda al modello."""
         question = self._input_var.get().strip()
+
         if not question:
             return
 
@@ -81,26 +161,61 @@ class ChatPanel(tk.Frame):
 
         if self._rag_chain is None:
             self._append(
-                "Nessun DB caricato. Apri un DB nel pannello a sinistra.\n\n",
+                "Nessun DB caricato. " "Apri un DB nel pannello a sinistra.\n\n",
                 tag="assistant",
             )
             return
 
-        self._append(f"Tu: {question}\n", tag="user")
+        self._append(
+            f"Tu: {question}\n",
+            tag="user",
+        )
+
         self._set_busy(True)
 
-        threading.Thread(target=self._run_llm, args=(question,), daemon=True).start()
+        threading.Thread(
+            target=self._run_llm,
+            args=(question,),
+            daemon=True,
+        ).start()
 
     def _run_llm(self, question: str):
+        """Esegue la richiesta LLM nel thread worker."""
         try:
             answer = self._rag_chain.ask(question)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Errore durante la chiamata LLM")
             answer = f"[Errore] {exc}"
-        self.after(0, self._on_llm_done, answer)
+
+        # NON chiamare direttamente Tkinter dal thread worker.
+        # Inseriamo invece la callback nella coda che viene elaborata
+        # periodicamente dal thread GUI.
+        self._ui_queue.put((self._on_llm_done, (answer,)))
+
+    # ------------------------------------------------------------------
+    # Comunicazione worker → GUI
+    # ------------------------------------------------------------------
+
+    def _process_ui_queue(self):
+        """Esegue nel thread GUI le callback prodotte dai worker."""
+        try:
+            while True:
+                callback, args = self._ui_queue.get_nowait()
+                callback(*args)
+
+        except queue.Empty:
+            pass
+
+        # Ripianifica il controllo della coda.
+        self.after(50, self._process_ui_queue)
 
     def _on_llm_done(self, answer: str):
-        self._append(f"Assistente: {answer}\n\n", tag="assistant")
+        """Aggiorna la GUI al termine della generazione."""
+        self._append(
+            f"Assistente: {answer}\n\n",
+            tag="assistant",
+        )
+
         self._set_busy(False)
 
     # ------------------------------------------------------------------
@@ -108,22 +223,46 @@ class ChatPanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _append(self, text: str, tag: str = ""):
+        """Aggiunge testo alla cronologia della chat."""
         self._history.config(state=tk.NORMAL)
+
         if tag:
-            self._history.insert(tk.END, text, tag)
+            self._history.insert(
+                tk.END,
+                text,
+                tag,
+            )
         else:
-            self._history.insert(tk.END, text)
+            self._history.insert(
+                tk.END,
+                text,
+            )
+
         self._history.config(state=tk.DISABLED)
         self._history.see(tk.END)
 
     def _set_busy(self, busy: bool):
+        """Abilita/disabilita i controlli durante l'elaborazione."""
         if busy:
             self._status_var.set("⏳ In elaborazione...")
             self._status_label.grid()
-            self._send_btn.config(state=tk.DISABLED)
-            self._entry.config(state=tk.DISABLED)
+
+            self._send_btn.config(
+                state=tk.DISABLED,
+            )
+
+            self._entry.config(
+                state=tk.DISABLED,
+            )
+
         else:
             self._status_label.grid_remove()
             self._status_var.set("")
-            self._send_btn.config(state=tk.NORMAL)
-            self._entry.config(state=tk.NORMAL)
+
+            self._send_btn.config(
+                state=tk.NORMAL,
+            )
+
+            self._entry.config(
+                state=tk.NORMAL,
+            )

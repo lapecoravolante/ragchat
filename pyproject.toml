@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "RAG Chat — chat with local LLM over your documents"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+
 dependencies = [
-    # ── Dipendenze cross-platform (sempre richieste) ──────────────────────────
+    # ── Dipendenze cross-platform ──────────────────────────────────────────
     "langchain",
     "langchain-community",
     "langchain-huggingface",
@@ -14,30 +15,83 @@ dependencies = [
     "huggingface-hub",
     "sentence-transformers",
 
-    # ── Dipendenze Windows (sys_platform == "win32") ──────────────────────────
-    # torch: wheel CPU-only per Windows AMD64 (vedi [tool.uv.sources])
-    "torch ; sys_platform == 'win32'",
-    # llama-cpp-python: wheel precompilato CPU-only per Windows AMD64
-    # (vedi [tool.uv.sources]). Su altre piattaforme installare con:
-    #   pip install llama-cpp-python
-    # o compilare da sorgente.
-    "llama-cpp-python ; sys_platform == 'win32'",
+    # ── PyTorch ─────────────────────────────────────────────────────────────
+    "torch",
+
+    # ── LLM locale ──────────────────────────────────────────────────────────
+    "llama-cpp-python",
 ]
 
-# ── Note sui prerequisiti di sistema ─────────────────────────────────────────
-# Windows: le VC++ 2022 runtime DLL (MSVCP140, VCRUNTIME140, VCRUNTIME140_1)
-#   sono incluse nel progetto in src/prova/vendor/win_runtime/ e caricate
-#   automaticamente all'avvio — nessuna installazione di sistema richiesta.
-# Linux/macOS: nessun prerequisito aggiuntivo oltre a Python 3.12.
+
+# =============================================================================
+# UV SOURCES
+# =============================================================================
 
 [tool.uv.sources]
-# torch: wheel CPU-only ufficiale PyTorch per Windows x64 + Python 3.12
-torch = { url = "https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-win_amd64.whl" }
-# llama-cpp-python: wheel precompilato CPU-only per Windows x64 (Python 3-universal)
-llama-cpp-python = { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35/llama_cpp_python-0.3.35-py3-none-win_amd64.whl" }
+
+# ── PyTorch ─────────────────────────────────────────────────────────────────
+#
+# Windows x64 + Python 3.12:
+#   wheel CPU-only ufficiale PyTorch.
+#
+# Linux:
+#   normale pacchetto PyPI.
+#
+torch = [
+    {
+        url = "https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-win_amd64.whl",
+        marker = "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    },
+]
+
+
+# ── llama-cpp-python ────────────────────────────────────────────────────────
+#
+# Windows x64:
+#   wheel CPU-only precompilata che già utilizzi con successo.
+#
+# Linux x86_64:
+#   indice ufficiale contenente le wheel CPU precompilate.
+#
+llama-cpp-python = [
+    {
+        url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35/llama_cpp_python-0.3.35-py3-none-win_amd64.whl",
+        marker = "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    },
+    {
+        index = "llama-cpp-python-cpu",
+        marker = "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    },
+]
+
+
+# =============================================================================
+# INDICI UV
+# =============================================================================
+
+# Indice ufficiale delle wheel CPU precompilate di llama-cpp-python.
+#
+# explicit = true:
+# questo indice viene utilizzato soltanto dai pacchetti che lo selezionano
+# esplicitamente tramite tool.uv.sources.
+#
+[[tool.uv.index]]
+name = "llama-cpp-python-cpu"
+url = "https://abetlen.github.io/llama-cpp-python/whl/cpu/"
+explicit = true
+
+
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
 
 [project.scripts]
 ragchat = "ragchat:main"
+
+
+# =============================================================================
+# BUILD SYSTEM
+# =============================================================================
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
