@@ -5,6 +5,7 @@ from tkinter import ttk
 
 from ragchat.ui.db_panel import DBPanel
 from ragchat.ui.chat_panel import ChatPanel
+from ragchat.ui.log_panel import LogPanel
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,18 @@ class MainApp(tk.Tk):
             except tk.TclError:
                 style.theme_use("clam")  # Linux/fallback
 
+        # ── Pannello log (singleton) ─────────────────────────────────────
+        self._log_panel = LogPanel(self)
+        self._log_panel.install()
+
         # Layout principale: pannello sinistro (DB) + pannello destro (Chat)
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
 
-        self._db_panel = DBPanel(paned, on_db_changed=self._on_db_changed)
+        self._db_panel = DBPanel(
+            paned,
+            on_db_changed=self._on_db_changed,
+            log_panel=self._log_panel,
+        )
         self._chat_panel = ChatPanel(paned)
 
         paned.add(self._db_panel, weight=1)

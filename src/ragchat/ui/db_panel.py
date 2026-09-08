@@ -23,17 +23,21 @@ class DBPanel(tk.Frame):
     queue.Queue, evitando chiamate Tkinter dai thread worker.
     """
 
-    def __init__(self, parent, on_db_changed: callable = None, **kwargs):
+    def __init__(self, parent, on_db_changed: callable = None,
+                 log_panel=None, **kwargs):
         """Costruisce il pannello.
 
         Args:
             parent: Widget Tkinter padre.
             on_db_changed: Callback ``on_db_changed(faiss_store: FAISSStore)``
                 chiamato ogni volta che il DB attivo cambia.
+            log_panel: Istanza ``LogPanel`` da aprire al click sulla label
+                di stato (opzionale).
         """
         super().__init__(parent, **kwargs)
 
         self._on_db_changed = on_db_changed
+        self._log_panel = log_panel
         self._store = None  # FAISSStore corrente
 
         # Coda utilizzata dai thread worker per comunicare con
@@ -222,6 +226,7 @@ class DBPanel(tk.Frame):
             textvariable=self._status_var,
             anchor="w",
             foreground="#57606a",
+            cursor="hand2",
         )
         self._status_lbl.grid(
             row=6,
@@ -229,6 +234,10 @@ class DBPanel(tk.Frame):
             sticky="ew",
             padx=8,
             pady=(4, 8),
+        )
+        self._status_lbl.bind(
+            "<Button-1>",
+            lambda _e: self._log_panel.toggle() if self._log_panel else None,
         )
 
     # ------------------------------------------------------------------
