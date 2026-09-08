@@ -3,29 +3,21 @@
 import logging
 import os
 from typing import TYPE_CHECKING
+from docling.datamodel.base_models import FormatToExtensions, InputFormat
 
 if TYPE_CHECKING:
     from ragchat.core.vectorstore import FAISSStore
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_EXTENSIONS = [
-    ".pdf",
-    ".docx",
-    ".pptx",
-    ".html",
-    ".htm",
-    ".txt",
-    ".md",
-    ".png",
-    ".jpg",
-    ".jpeg",
-]
 
-
-def get_supported_extensions() -> list[str]:
-    """Restituisce le estensioni file supportate da Docling."""
-    return list(_SUPPORTED_EXTENSIONS)
+def get_supported_extensions() -> dict[InputFormat, list[str]]:
+    """Restituisce le estensioni file supportate da Docling."""    
+    result={}
+    for input_format, extensions in FormatToExtensions.items():
+        # input_format è un enum (es. InputFormat.PDF)
+        result[input_format.name]=extensions
+    return result
 
 
 def ingest_document(file_path: str, faiss_store: "FAISSStore") -> int:

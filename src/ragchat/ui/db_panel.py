@@ -432,11 +432,25 @@ class DBPanel(tk.Frame):
         )
 
         exts = get_supported_extensions()
-        pattern = " ".join(f"*{e}" for e in exts)
+        
+        # 1. Genera l'elenco flat di tutti i pattern per il filtro cumulativo
+        all_patterns = []
+        category_filters = []
+        
+        for category_name, extensions in exts.items():
+            # Pulisce le estensioni rimuovendo il punto se già presente e aggiungendo '*.'
+            patterns = [f"*.{ext}" for ext in extensions]
+            all_patterns.extend(patterns)
+            
+            # Crea il filtro specifico per questa categoria (es. ("Formati PDF", "*.pdf"))
+            patterns_string = " ".join(patterns)
+            category_filters.append((f"{category_name}", patterns_string))
 
+        # 2. Popola la lista filetypes combinando i filtri creati
         filetypes = [
-            ("Documenti", pattern),
             ("Tutti i file", "*.*"),
+            *category_filters,
+            ("Tutti i file supportati da Docling", " ".join(all_patterns))
         ]
 
         paths = filedialog.askopenfilenames(
