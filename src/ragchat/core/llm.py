@@ -129,10 +129,33 @@ def _download_model() -> str:
     last_error: Optional[Exception] = None
     for filename in FILENAMES:
         try:
-            logger.info("Download modello GGUF: %s/%s …", REPO_ID, filename)
-            path = hf_hub_download(repo_id=REPO_ID, filename=filename)
-            logger.info("Modello scaricato in: %s", path)
-            return path
+            # Prima tenta il caricamento locale (nessuna rete);
+            # se il file non è in cache passa al download effettivo.
+            for local_only in (True, False):
+                try:
+                    if local_only:
+                        logger.debug(
+                            "Tentativo caricamento locale: %s/%s", REPO_ID, filename
+                        )
+                    else:
+                        logger.info(
+                            "Download modello GGUF: %s/%s …", REPO_ID, filename
+                        )
+                    path = hf_hub_download(
+                        repo_id=REPO_ID,
+                        filename=filename,
+                        local_files_only=local_only,
+                    )
+                    logger.info("Modello disponibile in: %s", path)
+                    return path
+                except Exception as inner_exc:  # noqa: BLE001
+                    if local_only:
+                        # Non è in cache locale, si proverà il download
+                        logger.debug(
+                            "Non trovato in cache locale (%s): %s", filename, inner_exc
+                        )
+                        continue
+                    raise
         except Exception as exc:  # noqa: BLE001
             logger.warning("Download fallito per %s: %s", filename, exc)
             last_error = exc
