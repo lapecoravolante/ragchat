@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import httpx
+from huggingface_hub import set_client_factory
 from langchain_huggingface import HuggingFaceEmbeddings
 
 logger = logging.getLogger(__name__)
@@ -11,6 +13,13 @@ logger = logging.getLogger(__name__)
 _MODEL_NAME = "intfloat/multilingual-e5-large"
 
 _embeddings_instance: Optional[HuggingFaceEmbeddings] = None
+
+
+# Disabilita la verifica dei certificati TLS per le connessioni HuggingFace.
+def _insecure_client_factory() -> httpx.Client:
+    return httpx.Client(verify=False, follow_redirects=True)
+
+set_client_factory(_insecure_client_factory)
 
 
 def _resolve_model_name() -> tuple[str, bool]:
