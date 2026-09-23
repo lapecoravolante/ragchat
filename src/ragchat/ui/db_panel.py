@@ -13,7 +13,7 @@ class DBPanel(tk.Frame):
     """Widget Tkinter per la gestione del database vettoriale FAISS.
 
     Pannello verticale con:
-    - Sezione percorso DB + pulsanti Apri / Nuovo
+    - Sezione percorso DB + pulsante Seleziona DB
     - Listbox documenti indicizzati con scrollbar
     - Pulsanti Aggiungi / Rimuovi
     - Label di stato in basso
@@ -119,17 +119,10 @@ class DBPanel(tk.Frame):
 
         self._btn_open = ttk.Button(
             btn_frame_db,
-            text="Apri DB",
+            text="Seleziona DB",
             command=self._on_open_db,
         )
-        self._btn_open.pack(side="left", padx=(0, 4))
-
-        self._btn_new = ttk.Button(
-            btn_frame_db,
-            text="Nuovo DB",
-            command=self._on_new_db,
-        )
-        self._btn_new.pack(side="left")
+        self._btn_open.pack(side="left")
 
         ttk.Separator(self, orient="horizontal").grid(
             row=3,
@@ -308,7 +301,7 @@ class DBPanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _on_open_db(self) -> None:
-        """Apre un DB FAISS esistente scelto dall'utente."""
+        """Apre o crea un DB FAISS nella cartella scelta dall'utente."""
         path = filedialog.askdirectory(title="Seleziona cartella DB FAISS")
 
         if not path:
@@ -366,73 +359,12 @@ class DBPanel(tk.Frame):
             name="load-faiss-db",
         ).start()
 
-    def _on_new_db(self) -> None:
-        """Crea un nuovo DB FAISS nella cartella scelta dall'utente."""
-        path = filedialog.askdirectory(title="Seleziona cartella per nuovo DB")
-
-        if not path:
-            return
-
-        logger.info(
-            "Richiesta creazione nuovo DB: %s",
-            path,
-        )
-
-        self._set_buttons_state("disabled")
-        self._status_var.set("⏳ Creazione DB...")
-
-        def _worker():
-            logger.info(
-                "Worker creazione DB avviato: %s",
-                path,
-            )
-
-            try:
-                logger.info("Importazione FAISSStore...")
-
-                from ragchat.core.vectorstore import FAISSStore
-
-                logger.info(
-                    "FAISSStore importato. " "Chiamata FAISSStore.create(%s)",
-                    path,
-                )
-
-                store = FAISSStore.create(path)
-
-                logger.info(
-                    "FAISSStore.create() terminato: %r",
-                    store,
-                )
-
-                self._run_on_ui(lambda: self._finish_db_change(store))
-
-                logger.info("Risultato creazione DB accodato alla GUI")
-
-            except Exception as exc:
-                logger.exception(
-                    "Errore creazione DB '%s'",
-                    path,
-                )
-
-                self._run_on_ui(
-                    lambda exc=exc: self._set_status(
-                        f"✗ Errore: {exc}",
-                        restore_buttons=True,
-                    )
-                )
-
-        threading.Thread(
-            target=_worker,
-            daemon=True,
-            name="create-faiss-db",
-        ).start()
-
     def _on_add_documents(self) -> None:
         """Aggiunge uno o più documenti al DB corrente."""
         if self._store is None:
             messagebox.showwarning(
                 "Nessun DB",
-                "Aprire o creare un DB prima.",
+                "Selezionare un DB prima.",
             )
             return
 
@@ -541,7 +473,7 @@ class DBPanel(tk.Frame):
         if self._store is None:
             messagebox.showwarning(
                 "Nessun DB",
-                "Aprire o creare un DB prima.",
+                "Selezionare un DB prima.",
             )
             return
 
@@ -694,7 +626,6 @@ class DBPanel(tk.Frame):
         """Abilita o disabilita tutti i pulsanti del pannello."""
         for btn in (
             self._btn_open,
-            self._btn_new,
             self._btn_add,
             self._btn_remove,
         ):
