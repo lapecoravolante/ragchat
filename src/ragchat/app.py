@@ -3,6 +3,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
+import ragchat.config as cfg
 from ragchat.ui.db_panel import DBPanel
 from ragchat.ui.chat_panel import ChatPanel
 from ragchat.ui.log_panel import LogPanel
@@ -10,9 +11,19 @@ from ragchat.ui.log_panel import LogPanel
 logger = logging.getLogger(__name__)
 
 
+def _setup_logging(level_name: str) -> None:
+    """Configura il livello di logging radice in base al valore da config."""
+    level = getattr(logging, level_name.upper(), logging.ERROR)
+    logging.getLogger().setLevel(level)
+
+
 class MainApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+
+        # ── Carica configurazione e imposta il logging ───────────────────
+        self._config = cfg.load()
+        _setup_logging(self._config["log_level"])
 
         self.title("RAG Chat")
         self.geometry("1200x700")
@@ -47,7 +58,7 @@ class MainApp(tk.Tk):
         paned.add(self._chat_panel, weight=3)
         paned.pack(fill=tk.BOTH, expand=True)
 
-        # Carica DB di default se esiste
+        # Carica DB di default se specificato in config, altrimenti fallback storico
         self._load_default_db()
 
         # Handler chiusura finestra
@@ -62,7 +73,13 @@ class MainApp(tk.Tk):
         logger.info("DB aggiornato: RAGChain ricreata.")
 
     def _load_default_db(self) -> None:
-        default_path = Path.home() / "faiss_db"
+        # Legge il path dalla configurazione; se vuoto usa il fallback storico
+        config_path = self._config["default_db_path"].strip()
+        if config_path:
+            default_path = Path(config_path)
+        else:
+            default_path = Path.home() / "faiss_db"
+
         if default_path.exists():
             try:
                 from ragchat.core.vectorstore import FAISSStore

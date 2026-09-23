@@ -124,6 +124,12 @@ class DBPanel(tk.Frame):
         )
         self._btn_open.pack(side="left")
 
+        ttk.Button(
+            btn_frame_db,
+            text="Impostazioni",
+            command=self._on_open_settings,
+        ).pack(side="left", padx=(6, 0))
+
         ttk.Separator(self, orient="horizontal").grid(
             row=3,
             column=0,
@@ -299,6 +305,11 @@ class DBPanel(tk.Frame):
     # ------------------------------------------------------------------
     # Handler pulsanti
     # ------------------------------------------------------------------
+
+    def _on_open_settings(self) -> None:
+        """Apre la finestra di dialogo delle impostazioni."""
+        from ragchat.ui.settings_dialog import SettingsDialog
+        SettingsDialog(self.winfo_toplevel())
 
     def _on_open_db(self) -> None:
         """Apre o crea un DB FAISS nella cartella scelta dall'utente."""

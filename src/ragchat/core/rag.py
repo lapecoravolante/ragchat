@@ -53,23 +53,20 @@ class RAGChain:
         try:
             # 2. Retrieval
             from ragchat.core.embeddings import format_query  # lazy import
+            import ragchat.config as _cfg
 
-            retriever = self._store.as_retriever(k=4)
+            _conf = _cfg.load()
+            top_k = int(_conf["top_k"])
+            retriever = self._store.as_retriever(k=top_k)
             query_with_prefix = format_query(question)
             docs = retriever.invoke(query_with_prefix)
 
             # 3. Costruzione contesto
             context = "\n\n---\n\n".join(doc.page_content for doc in docs)
 
-            # 4. Prompt
-            prompt_text = (
-                "Sei un assistente utile. Rispondi alla domanda basandoti "
-                "esclusivamente sul contesto fornito.\n"
-                "Se il contesto non contiene informazioni sufficienti per "
-                "rispondere, dillo chiaramente.\n\n"
-                f"Contesto:\n{context}\n\n"
-                f"Domanda: {question}\n\n"
-                "Risposta:"
+            # 4. Prompt (letto dalla configurazione)
+            prompt_text = _conf["prompt_template"].format(
+                context=context, question=question
             )
 
             # 5. LLM
