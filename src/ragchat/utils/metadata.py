@@ -10,6 +10,20 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 _METADATA_FILENAME = "metadata.json"
+
+
+def _get_default_embedding_model() -> str:
+    """Restituisce il modello di embedding configurato di default."""
+    try:
+        from ragchat.utils.config import Config
+        return Config.load()["embedding_model"]
+    except Exception:  # noqa: BLE001
+        return "intfloat/multilingual-e5-large"
+
+
+# Struttura JSON: "embedding_model" traccia il modello usato per generare
+# gli embedding nel DB; "documents" mappa nomi file → chunk IDs.
+# ``embedding_model`` viene sempre impostato in load() al modello configurato.
 _EMPTY_STORE: dict = {"documents": {}}
 
 
@@ -36,25 +50,36 @@ class MetadataStore:
     def load(self) -> None:
         """Carica il file JSON da disco.
 
-        Se il file non esiste inizializza una struttura vuota.
+        Se il file non esiste inizializza una struttura vuota con il modello
+        di embedding configurato di default.
         Se il file è corrotto lo segnala con un warning e inizializza vuoto.
+        Se ``embedding_model`` è assente nel JSON, viene impostato al modello configurato.
         """
+        default_model = _get_default_embedding_model()
+
         if not os.path.exists(self._json_path):
-            self._data = {"documents": {}}
+            self._data = dict(_EMPTY_STORE)
+            self._data["embedding_model"] = default_model
+            self.save()
             return
 
         try:
             with open(self._json_path, encoding="utf-8") as fh:
                 self._data = json.load(fh)
+            if self._data.get("embedding_model") is None:
+                self._data["embedding_model"] = default_model
             if "documents" not in self._data:
                 self._data["documents"] = {}
+            self.save()
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
                 "Impossibile leggere '%s' (%s). Il file verrà reinizializzato.",
                 self._json_path,
                 exc,
             )
-            self._data = {"documents": {}}
+            self._data = dict(_EMPTY_STORE)
+            self._data["embedding_model"] = default_model
+            self.save()
 
     def save(self) -> None:
         """Serializza e salva il JSON su disco."""
@@ -100,3 +125,19 @@ class MetadataStore:
     def get_document(self, name: str) -> dict | None:
         """Restituisce l'entrata del documento *name*, o ``None`` se assente."""
         return self._data["documents"].get(name)
+
+    # ------------------------------------------------------------------
+    # Gestione modello embedding
+    # ------------------------------------------------------------------
+
+    def get_embedding_model(self) -> str:
+        """Restituisce il nome del modello di embedding usato per generare
+        gli embedding nel DB. È sempre impostato (inizializzato al modello
+        configurato di default quando il DB è appena creato)."""
+        return self._data["embedding_model"]
+
+    def set_embedding_model(self, model_name: str) -> None:
+        """Imposta il nome del modello di embedding usato nel DB e salva su disco."""
+        self._data["embedding_model"] = model_name
+        self.save()
+        logger.debug("Modello embedding registrato nel metadata: %s", model_name)

@@ -1,6 +1,6 @@
 """Singleton lazy-loaded HuggingFace embedding model.
 
-Il nome del modello attivo viene letto da ``ragchat.config`` ogni volta che
+    Il nome del modello attivo viene letto da ``ragchat.utils.config`` ogni volta che
 viene richiesta l'istanza.  Se il modello configurato e' cambiato rispetto a
 quello attualmente caricato, il vecchio singleton viene scartato e il nuovo
 modello sara' caricato al prossimo utilizzo (lazy reload).
@@ -24,8 +24,8 @@ _loaded_model_name: Optional[str] = None
 def _get_model_name() -> str:
     """Legge il nome del modello di embedding attivo dalla configurazione."""
     try:
-        import ragchat.config as cfg
-        return cfg.load()["embedding_model"]
+        from ragchat.utils.config import Config
+        return Config.load()["embedding_model"]
     except Exception:  # noqa: BLE001
         return "intfloat/multilingual-e5-large"
 
@@ -95,6 +95,14 @@ def get_embeddings() -> HuggingFaceEmbeddings:
         logger.info("Modello embedding '%s' caricato.", model_name)
 
     return _embeddings_instance
+
+
+def invalidate_embedding_cache() -> None:
+    """Invalida il singleton embeddings, forzando un ricaricamento al prossimo get_embeddings()."""
+    global _embeddings_instance, _loaded_model_name
+    _embeddings_instance = None
+    _loaded_model_name = None
+    logger.info("Singleton embeddings invalidato.")
 
 
 def format_query(text: str) -> str:

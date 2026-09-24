@@ -26,10 +26,13 @@ src/ragchat/
 ├── ui/
 │   ├── __init__.py
 │   ├── db_panel.py              # DBPanel(tk.Frame) — pannello sinistro
+│   ├── settings_dialog.py       # SettingsDialog(tk.Toplevel) — configurazione
 │   └── chat_panel.py            # ChatPanel(tk.Frame) — pannello destro
 ├── utils/
 │   ├── __init__.py
+│   ├── config.py                # Config — gestione config.json (JSON, tipi forti)
 │   └── metadata.py              # MetadataStore — JSON persistenza doc→chunk IDs
+├── config.json                  # generato automaticamente (config.properties legacy migrato)
 └── vendor/
     ├── __init__.py
     └── win_runtime/             # VC++ 2022 runtime DLL (Windows, bundled)

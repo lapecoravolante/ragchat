@@ -1,7 +1,7 @@
 """Finestra di dialogo per la modifica delle impostazioni dell'applicazione.
 
 Apre una toplevel modale con un form che rispecchia le chiavi del file
-``config.properties``.  Le modifiche vengono persistite su disco solo al
+``config.json``.  Le modifiche vengono persistite su disco solo al
 clic di "Salva".
 """
 
@@ -10,7 +10,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-import ragchat.config as cfg
+from ragchat.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -200,16 +200,23 @@ class _ModelListWidget(tk.Frame):
 
 
 class SettingsDialog(tk.Toplevel):
-    """Finestra modale per la modifica di config.properties."""
+    """Finestra modale per la modifica di config.json."""
 
-    def __init__(self, parent: tk.Widget) -> None:
+    def __init__(
+        self,
+        parent: tk.Widget,
+        current_db_model: str | None = None,
+    ) -> None:
         super().__init__(parent)
         self.title("Impostazioni")
         self.resizable(True, True)
         self.grab_set()  # modale rispetto alla finestra principale
 
+        # Modello embedding del DB correntemente caricato (se presente)
+        self._current_db_model = current_db_model
+
         # Carica valori correnti
-        self._values = cfg.load()
+        self._values = Config.load()
         self._vars: dict[str, tk.Variable | tk.Text] = {}
         self._model_widgets: dict[str, _ModelListWidget] = {}
 
@@ -284,7 +291,7 @@ class SettingsDialog(tk.Toplevel):
             row=row, column=0, sticky="nw", padx=(0, 10), pady=4
         )
 
-        models = cfg.str_to_models(self._values.get(list_key, ""))
+        models = self._values.get(list_key, [])
         active = self._values.get(active_key, models[0] if models else "")
 
         widget = _ModelListWidget(parent, models=models, active=active)
@@ -366,7 +373,7 @@ class SettingsDialog(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _on_save(self) -> None:
-        new_values: dict[str, str] = {}
+        new_values: dict = {}
 
         # Raccoglie i valori dai widget standard
         for key, widget in self._vars.items():
@@ -377,11 +384,15 @@ class SettingsDialog(tk.Toplevel):
 
         # Raccoglie lista modelli e modello attivo dai ModelListWidget
         for kind, mw in self._model_widgets.items():
-            new_values[f"{kind}_models"] = cfg.models_to_str(mw.get_models())
+            new_values[f"{kind}_models"] = mw.get_models()  # list[str] nativo
             new_values[f"{kind}_model"] = mw.get_active()
 
+        # Verifica se il modello embedding è cambiato rispetto alla config attuale
+        old_model = Config.load()["embedding_model"]
+        new_embedding_model = new_values["embedding_model"]
+
         try:
-            cfg.save(new_values)
+            Config.save(new_values)
             logger.info("Impostazioni salvate.")
         except Exception as exc:  # noqa: BLE001
             logger.error("Errore nel salvataggio delle impostazioni: %s", exc)
@@ -391,5 +402,24 @@ class SettingsDialog(tk.Toplevel):
                 parent=self,
             )
             return
+
+        # Se il modello embedding è cambiato e un DB con modello diverso è caricato
+        if new_embedding_model != old_model:
+            if (
+                self._current_db_model is not None
+                and self._current_db_model != new_embedding_model
+            ):
+                messagebox.showwarning(
+                    "Modello embedding cambiato",
+                    f"Hai cambiato modello di embedding in '{new_embedding_model}'.\n\n"
+                    f"Il DB caricato usa '{self._current_db_model}'.\n\n"
+                    f"La ricerca RAG potrebbe restituire risultati inaffidabili "
+                    f"perché gli embedding del DB sono stati generati con un modello "
+                    f"diverso.\n\n"
+                    f"Carica un DB indicizzato con '{new_embedding_model}' "
+                    f"o riavvia l'applicazione.",
+                    icon="warning",
+                    parent=self,
+                )
 
         self.destroy()

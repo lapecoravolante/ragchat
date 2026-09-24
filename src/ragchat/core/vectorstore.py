@@ -132,6 +132,11 @@ class FAISSStore:
         keys_after: set[str] = set(self._db.docstore._dict.keys())
         new_ids: list[str] = list(keys_after - keys_before)
 
+        # Aggiorna il modello di embedding nel metadata: rappresenta
+        # l'ultimo modello usato per generare gli embedding nel DB.
+        from ragchat.core.embeddings import _get_model_name
+        self._metadata.set_embedding_model(_get_model_name())
+
         self._metadata.add_document(filename, new_ids)
         self.save()
 

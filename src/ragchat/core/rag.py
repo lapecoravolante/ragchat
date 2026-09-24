@@ -53,10 +53,9 @@ class RAGChain:
         try:
             # 2. Retrieval
             from ragchat.core.embeddings import format_query  # lazy import
-            import ragchat.config as _cfg
-
-            _conf = _cfg.load()
-            top_k = int(_conf["top_k"])
+            from ragchat.utils.config import Config
+            _conf = Config.load()
+            top_k = _conf["top_k"]
             retriever = self._store.as_retriever(k=top_k)
             query_with_prefix = format_query(question)
             docs = retriever.invoke(query_with_prefix)

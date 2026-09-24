@@ -3,7 +3,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-import ragchat.config as cfg
+from ragchat.utils.config import Config
 from ragchat.ui.db_panel import DBPanel
 from ragchat.ui.chat_panel import ChatPanel
 from ragchat.ui.log_panel import LogPanel
@@ -22,7 +22,7 @@ class MainApp(tk.Tk):
         super().__init__()
 
         # ── Carica configurazione e imposta il logging ───────────────────
-        self._config = cfg.load()
+        self._config = Config.load()
         _setup_logging(self._config["log_level"])
 
         self.title("RAG Chat")
@@ -83,6 +83,10 @@ class MainApp(tk.Tk):
         if default_path.exists():
             try:
                 from ragchat.core.vectorstore import FAISSStore
+
+                # Verifica modello embedding prima di caricare
+                if not self._db_panel._verify_embedding_model(str(default_path)):
+                    return
 
                 store = FAISSStore.load(str(default_path))
                 self._on_db_changed(store)

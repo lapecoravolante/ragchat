@@ -309,7 +309,67 @@ class DBPanel(tk.Frame):
     def _on_open_settings(self) -> None:
         """Apre la finestra di dialogo delle impostazioni."""
         from ragchat.ui.settings_dialog import SettingsDialog
-        SettingsDialog(self.winfo_toplevel())
+
+        db_model = None
+        if self._store is not None:
+            db_model = self._store._metadata.get_embedding_model()
+        SettingsDialog(self.winfo_toplevel(), current_db_model=db_model)
+
+    def _verify_embedding_model(self, db_path: str) -> bool:
+        """Verifica che il modello embedding nel DB corrisponda a quello configurato.
+
+        Se il DB contiene un modello diverso, mostra un dialogo all'utente.
+        Se l'utente accetta, aggiorna la config e invalida il singleton embeddings.
+
+        Returns:
+            True se il DB può essere caricato, False se l'utente ha annullato.
+        """
+        from ragchat.utils.metadata import MetadataStore
+        from ragchat.utils.config import Config
+
+        metadata = MetadataStore(db_path)
+        db_model = metadata.get_embedding_model()
+
+        config = Config.load()
+        config_model = config["embedding_model"]
+        models = config["embedding_models"]  # list[str] nativo JSON
+
+        if db_model == config_model:
+            return True
+
+        # ── MISMATCH: mostra dialogo ──────────────────────────────────
+        result = messagebox.askyesno(
+            "Modello embedding diverso",
+            f"Il DB è stato indicizzato con il modello:\n\n  {db_model}\n\n"
+            f"Il modello attualmente configurato è:\n\n  {config_model}\n\n"
+            f"I vettori generati con '{db_model}' non sono compatibili con "
+            f"query embedding generate da '{config_model}'.\n\n"
+            f"Vuoi usare '{db_model}' per aprire questo DB?\n"
+            f"Verrà impostato come modello attivo.",
+            icon="warning",
+        )
+
+        if result:
+            # ── Aggiorna config: aggiungi modello alla lista e imposta attivo ──
+            if db_model not in models:
+                models.insert(0, db_model)
+            config["embedding_model"] = db_model
+            config["embedding_models"] = models
+            Config.save(config)
+
+            # ── Invalida singleton embeddings ────────────────────────────────
+            from ragchat.core.embeddings import invalidate_embedding_cache
+            invalidate_embedding_cache()
+
+            logger.info(
+                "Modello embedding cambiato a '%s' per aprire DB '%s'.",
+                db_model, db_path,
+            )
+            return True
+
+        # utente ha detto no
+        self._status_var.set("● Pronto (caricamento annullato)")
+        return False
 
     def _on_open_db(self) -> None:
         """Apre o crea un DB FAISS nella cartella scelta dall'utente."""
@@ -322,6 +382,10 @@ class DBPanel(tk.Frame):
             "Richiesta apertura DB: %s",
             path,
         )
+
+        # ── Verifica modello embedding prima di caricare ────────────────
+        if not self._verify_embedding_model(path):
+            return
 
         self._set_buttons_state("disabled")
         self._status_var.set("⏳ Caricamento DB...")

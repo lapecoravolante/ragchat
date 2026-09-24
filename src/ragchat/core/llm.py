@@ -17,7 +17,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Repo-id di default; viene sovrascritto dal valore in config.properties
+# Repo-id di default; viene sovrascritto dal valore in config.json
 _DEFAULT_REPO_ID = "bartowski/gemma-2-2b-it-GGUF"
 
 # File GGUF da cercare nel repo (in ordine di preferenza)
@@ -33,8 +33,8 @@ _VENDOR_RUNTIME_DIR = Path(__file__).parent.parent / "vendor" / "win_runtime"
 def _get_repo_id() -> str:
     """Legge il repo-id del modello LLM attivo dalla configurazione."""
     try:
-        import ragchat.config as cfg
-        return cfg.load()["query_model"]
+        from ragchat.utils.config import Config
+        return Config.load()["query_model"]
     except Exception:  # noqa: BLE001
         return _DEFAULT_REPO_ID
 
