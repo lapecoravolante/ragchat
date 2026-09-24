@@ -7,36 +7,72 @@ Gestisce:
 - Invalidazione e reload del singleton quando il modello attivo cambia in config
 - Graceful degradation se llama-cpp-python non e' installato
 - Caricamento bundled delle VC++ runtime DLL (Windows) senza installazione di sistema
+- Risoluzione del modello da URL HuggingFace (hf_hub_download + LlamaCpp)
+  o repo-id (snapshot_download + transformers via langchain)
 """
 
 import logging
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Repo-id di default; viene sovrascritto dal valore in config.json
-_DEFAULT_REPO_ID = "bartowski/gemma-2-2b-it-GGUF"
-
-# File GGUF da cercare nel repo (in ordine di preferenza)
-FILENAMES = ["gemma-2-2b-it-Q4_K_M.gguf", "gemma-2-2b-it-Q8_0.gguf"]
-
-# Manteniamo REPO_ID come simbolo di modulo per retrocompatibilita'
-REPO_ID = _DEFAULT_REPO_ID
+# Regex per estrarre repo_id e filename da una URL HuggingFace
+# Formato: https://huggingface.co/{repo_id}/(blob|resolve)/{revision}/{filename}
+_HF_URL_RE = re.compile(
+    r"^https?://huggingface\.co/([^/]+/[^/]+)/(?:blob|resolve)/([^/]+)/(.+)$"
+)
 
 # Cartella vendor con le VC++ runtime DLL incluse nel progetto
 _VENDOR_RUNTIME_DIR = Path(__file__).parent.parent / "vendor" / "win_runtime"
 
 
-def _get_repo_id() -> str:
-    """Legge il repo-id del modello LLM attivo dalla configurazione."""
+def _get_model_spec() -> str:
+    """Legge lo specificatore del modello LLM attivo dalla configurazione.
+
+    Il valore puo' essere:
+    - una URL HuggingFace a un file GGUF specifico
+    - un semplice repo-id (es. ``bartowski/gemma-2-2b-it-GGUF``)
+    """
     try:
         from ragchat.utils.config import Config
         return Config.load()["query_model"]
     except Exception:  # noqa: BLE001
-        return _DEFAULT_REPO_ID
+        return Config.get_defaults()["query_model"]
+
+
+def _is_hf_url(spec: str) -> bool:
+    """Verifica se *spec* e' una URL HuggingFace a un file GGUF."""
+    return _HF_URL_RE.match(spec) is not None
+
+
+def _parse_hf_url(url: str) -> Tuple[str, str]:
+    """Estrae ``(repo_id, filename)`` da una URL HuggingFace.
+
+    Raises:
+        ValueError: se l'URL non e' valida.
+    """
+    match = _HF_URL_RE.match(url)
+    if not match:
+        raise ValueError(f"URL HuggingFace non valida: {url}")
+    repo_id = match.group(1)
+    filename = match.group(3)
+    return repo_id, filename
+
+
+def _resolve_model_spec(spec: str) -> Tuple[str, Optional[str]]:
+    """Risolve lo specificatore modello in ``(repo_id, filename)``.
+
+    Se *spec* e' una URL HuggingFace, *filename* e' estratto dall'URL.
+    Se *spec* e' un repo-id, *filename* e' ``None`` (verra' determinato
+    al momento del download tramite ``snapshot_download``).
+    """
+    if _is_hf_url(spec):
+        return _parse_hf_url(spec)
+    return spec, None
 
 
 def _register_windows_dll_dirs() -> None:
@@ -66,9 +102,9 @@ def _register_windows_dll_dirs() -> None:
     # 2. DLL native di llama_cpp (ggml-base, ggml, ggml-cpu, llama, mtmd)
     try:
         import importlib.util as _ilu
-        spec = _ilu.find_spec("llama_cpp")
-        if spec and spec.origin:
-            _lib_dir = Path(spec.origin).parent / "lib"
+        ilu_spec = _ilu.find_spec("llama_cpp")
+        if ilu_spec and ilu_spec.origin:
+            _lib_dir = Path(ilu_spec.origin).parent / "lib"
             if _lib_dir.is_dir():
                 os.add_dll_directory(str(_lib_dir))
                 logger.debug("llama_cpp lib/ registrata: %s", _lib_dir)
@@ -90,140 +126,109 @@ except (ImportError, RuntimeError, OSError):
         "Per installarlo: pip install llama-cpp-python"
     )
 
-# Singleton corrente e repo-id con cui e' stato creato
+# Singleton corrente e specificatore con cui e' stato creato
 _llm_instance = None
-_loaded_repo_id: Optional[str] = None
+_loaded_spec: Optional[str] = None
 
 
 def is_llm_available() -> bool:
     """
-    Restituisce True se llama-cpp-python e' importabile, False altrimenti.
+    Restituisce True se llama-cpp-python (per URL GGUF) oppure transformers
+    (per repo-id) e' disponibile, False altrimenti.
     """
-    return _LLAMA_AVAILABLE
+    if _LLAMA_AVAILABLE:
+        return True
+    try:
+        import transformers  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def get_model_path() -> Optional[str]:
     """
-    Restituisce il percorso locale del file GGUF del repo attivo se gia'
-    presente in cache, None altrimenti (senza scaricare nulla).
+    Restituisce il percorso locale del modello attivo se gia' presente in
+    cache, None altrimenti (senza scaricare nulla).
+
+    Se il modello e' specificato come URL HuggingFace, restituisce il percorso
+    del file GGUF in cache. Se e' un repo-id, restituisce il percorso della
+    directory snapshot in cache (usato da transformers).
     """
+    spec = _get_model_spec()
+    repo_id, filename = _resolve_model_spec(spec)
+
     try:
-        from huggingface_hub import try_to_load_from_cache
+        from huggingface_hub import try_to_load_from_cache, snapshot_download
     except ImportError:
         logger.warning("huggingface_hub non e' installato.")
         return None
 
-    repo_id = _get_repo_id()
-    for filename in FILENAMES:
+    if filename is not None:
+        # URL HuggingFace: controlla la cache per quel file specifico
         cached = try_to_load_from_cache(repo_id=repo_id, filename=filename)
         if cached is not None and isinstance(cached, str):
             logger.debug("Modello trovato in cache: %s", cached)
             return cached
+        return None
 
-    return None
+    # Repo-id: verifica che lo snapshot sia gia' presente in cache
+    try:
+        snapshot_path = snapshot_download(repo_id, local_files_only=True)
+    except Exception:  # noqa: BLE001
+        return None
+
+    logger.debug("Modello trovato in cache: %s", snapshot_path)
+    return snapshot_path
 
 
-def _download_model(repo_id: str) -> str:
+def _download_model(spec: str) -> str:
     """
-    Scarica il file GGUF da HuggingFace Hub e restituisce il percorso locale.
-    Prova prima Q4_K_M, poi Q8_0 come fallback.
+    Scarica il modello da HuggingFace Hub e restituisce il percorso locale.
+
+    Se *spec* e' una URL HuggingFace, usa ``hf_hub_download`` per scaricare
+    il file GGUF specifico. Se *spec* e' un repo-id, usa ``snapshot_download``
+    per scaricare l'intero repository.
 
     Raises:
-        RuntimeError: se nessun file puo' essere scaricato.
+        RuntimeError: se il download fallisce o huggingface_hub non e' installato.
     """
+    repo_id, filename = _resolve_model_spec(spec)
+
     try:
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import hf_hub_download, snapshot_download
     except ImportError as exc:
         raise RuntimeError(
             "huggingface_hub non e' installato. "
             "Installarlo con: pip install huggingface-hub"
         ) from exc
 
-    last_error: Optional[Exception] = None
-    for filename in FILENAMES:
-        try:
-            # Prima tenta il caricamento locale (nessuna rete);
-            # se il file non e' in cache passa al download effettivo.
-            for local_only in (True, False):
-                try:
-                    if local_only:
-                        logger.debug(
-                            "Tentativo caricamento locale: %s/%s", repo_id, filename
-                        )
-                    else:
-                        logger.info(
-                            "Download modello GGUF: %s/%s ...", repo_id, filename
-                        )
-                    path = hf_hub_download(
-                        repo_id=repo_id,
-                        filename=filename,
-                        local_files_only=local_only,
-                    )
-                    logger.info("Modello disponibile in: %s", path)
-                    return path
-                except Exception as inner_exc:  # noqa: BLE001
-                    if local_only:
-                        logger.debug(
-                            "Non trovato in cache locale (%s): %s", filename, inner_exc
-                        )
-                        continue
-                    raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Download fallito per %s: %s", filename, exc)
-            last_error = exc
+    if filename is not None:
+        # URL HuggingFace: scarica il file GGUF specifico
+        path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+        )
+        logger.info("Modello GGUF disponibile in: %s", path)
+        return path
 
-    raise RuntimeError(
-        f"Impossibile scaricare il modello GGUF da {repo_id}. "
-        f"Ultimo errore: {last_error}"
-    )
+    # Repo-id: scarica l'intero snapshot
+    logger.info("Download modello da: %s ...", repo_id)
+    path = snapshot_download(repo_id)
+    logger.info("Modello disponibile in: %s", path)
+    return path
 
 
-def get_llm():
-    """
-    Restituisce il singleton LlamaCpp per il modello LLM attivo.
-
-    Se il repo-id configurato e' cambiato rispetto a quello caricato, il
-    singleton precedente viene invalidato e il nuovo verra' creato al prossimo
-    accesso (lazy reload).
-
-    Al primo accesso con un dato repo-id:
-    1. Verifica che llama-cpp-python sia installato.
-    2. Cerca il file GGUF in cache; se assente lo scarica.
-    3. Istanzia LlamaCpp.
-
-    Returns:
-        Istanza ``LlamaCpp`` di langchain-community.
+def _create_llama_cpp(model_path: str):
+    """Istanzia ``LlamaCpp`` da un file GGUF scaricato.
 
     Raises:
-        ImportError: se llama-cpp-python non e' installato.
-        RuntimeError: se il download del modello fallisce.
+        ImportError: se langchain-community o llama-cpp-python non sono installati.
     """
-    global _llm_instance, _loaded_repo_id
-
-    repo_id = _get_repo_id()
-
-    if _llm_instance is not None and _loaded_repo_id != repo_id:
-        logger.info(
-            "Modello LLM cambiato (%s -> %s): il vecchio singleton viene scartato.",
-            _loaded_repo_id,
-            repo_id,
-        )
-        _llm_instance = None
-        _loaded_repo_id = None
-
-    if _llm_instance is not None:
-        return _llm_instance
-
     if not _LLAMA_AVAILABLE:
         raise ImportError(
             "llama-cpp-python non e' installato. "
             "Installarlo con: pip install llama-cpp-python"
         )
-
-    # Cerca prima in cache, altrimenti scarica
-    model_path = get_model_path()
-    if model_path is None:
-        model_path = _download_model(repo_id)
 
     try:
         from langchain_community.llms import LlamaCpp
@@ -233,8 +238,8 @@ def get_llm():
             "Installarlo con: pip install langchain-community"
         ) from exc
 
-    logger.info("Caricamento modello LLM '%s' da: %s", repo_id, model_path)
-    _llm_instance = LlamaCpp(
+    logger.info("Caricamento modello LLM GGUF da: %s", model_path)
+    return LlamaCpp(
         model_path=model_path,
         n_ctx=4096,
         temperature=0.7,
@@ -242,6 +247,95 @@ def get_llm():
         n_threads=4,
         verbose=False,
     )
-    _loaded_repo_id = repo_id
-    logger.info("LLM '%s' pronto.", repo_id)
+
+
+def _create_hf_llm(repo_path: str):
+    """Istanzia un modello HuggingFace tramite langchain.
+
+    Usa ``transformers`` per caricare il modello e ``HuggingFacePipeline``
+    di langchain-community per l'interfaccia.
+
+    Raises:
+        ImportError: se transformers, torch o langchain-community
+            non sono installati.
+    """
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+    except ImportError as exc:
+        raise ImportError(
+            "transformers non e' installato. "
+            "Installarlo con: pip install transformers"
+        ) from exc
+
+    try:
+        from langchain_community.llms import HuggingFacePipeline
+    except ImportError as exc:
+        raise ImportError(
+            "langchain-community non e' installato. "
+            "Installarlo con: pip install langchain-community"
+        ) from exc
+
+    logger.info("Caricamento modello LLM transformers da: %s", repo_path)
+    tokenizer = AutoTokenizer.from_pretrained(repo_path)
+    model = AutoModelForCausalLM.from_pretrained(repo_path)
+    hf_pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=512,
+        temperature=0.7,
+        do_sample=True,
+    )
+    return HuggingFacePipeline(pipeline=hf_pipe)
+
+
+def get_llm():
+    """
+    Restituisce il singleton LLM per il modello attivo.
+
+    Se lo specificatore configurato e' cambiato rispetto a quello caricato, il
+    singleton precedente viene invalidato e il nuovo verra' creato al prossimo
+    accesso (lazy reload).
+
+    Al primo accesso con uno specificatore dato:
+    1. Cerca il modello in cache; se assente lo scarica da HuggingFace.
+    2. Se *spec* e' una URL HuggingFace, crea un'istanza ``LlamaCpp``
+       (llama-cpp-python). Se *spec* e' un repo-id, carica il modello con
+       ``transformers`` tramite ``HuggingFacePipeline`` (langchain-community).
+
+    Returns:
+        Istanza LLM di langchain-community (``LlamaCpp`` o ``HuggingFacePipeline``).
+
+    Raises:
+        ImportError: se le dipendenze necessarie non sono installate.
+        RuntimeError: se il download del modello fallisce.
+    """
+    global _llm_instance, _loaded_spec
+
+    spec = _get_model_spec()
+
+    if _llm_instance is not None and _loaded_spec != spec:
+        logger.info(
+            "Modello LLM cambiato (%s -> %s): il vecchio singleton viene scartato.",
+            _loaded_spec,
+            spec,
+        )
+        _llm_instance = None
+        _loaded_spec = None
+
+    if _llm_instance is not None:
+        return _llm_instance
+
+    # Cerca prima in cache, altrimenti scarica
+    model_path = get_model_path()
+    if model_path is None:
+        model_path = _download_model(spec)
+
+    if _is_hf_url(spec):
+        _llm_instance = _create_llama_cpp(model_path)
+    else:
+        _llm_instance = _create_hf_llm(model_path)
+
+    _loaded_spec = spec
+    logger.info("LLM '%s' pronto.", spec)
     return _llm_instance

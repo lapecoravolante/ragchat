@@ -382,6 +382,10 @@ class SettingsDialog(tk.Toplevel):
             else:
                 new_values[key] = widget.get()  # type: ignore[union-attr]
 
+        # Coerce top_k a intero (lo spinbox usa StringVar)
+        if "top_k" in new_values:
+            new_values["top_k"] = int(new_values["top_k"])
+
         # Raccoglie lista modelli e modello attivo dai ModelListWidget
         for kind, mw in self._model_widgets.items():
             new_values[f"{kind}_models"] = mw.get_models()  # list[str] nativo

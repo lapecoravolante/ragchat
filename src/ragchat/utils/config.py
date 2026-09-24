@@ -25,7 +25,7 @@ _DEFAULT_EMBEDDING_MODELS = [
 
 # Modelli LLM disponibili di default (il primo è quello attivo)
 _DEFAULT_QUERY_MODELS = [
-    "bartowski/gemma-2-2b-it-GGUF",
+    "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/blob/main/gemma-2-2b-it-Q4_K_M.gguf",
 ]
 
 _DEFAULT_DATA: dict = {
@@ -121,6 +121,12 @@ class Config:
                     if isinstance(default_val, list)
                     else default_val
                 )
+
+        if "top_k" in values:
+            try:
+                values["top_k"] = int(values["top_k"])
+            except (TypeError, ValueError):
+                values["top_k"] = defaults["top_k"]
 
         for kind in ("embedding", "query"):
             active = values[f"{kind}_model"]

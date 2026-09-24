@@ -14,10 +14,8 @@ dependencies = [
     "docling",
     "huggingface-hub",
     "sentence-transformers",
-
     # ── PyTorch ─────────────────────────────────────────────────────────────
     "torch",
-
     # ── LLM locale ──────────────────────────────────────────────────────────
     "llama-cpp-python",
 ]
