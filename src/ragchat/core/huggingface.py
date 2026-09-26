@@ -602,6 +602,11 @@ class HuggingFace:
         """
         logger.debug("Ricerca modelli HuggingFace: task=%s", task)
         try:
+            from ragchat.utils.config import Config
+            max_models = Config.load().get("hf_max_models", _MAX_MODELS)
+        except Exception:  # noqa: BLE001
+            max_models = _MAX_MODELS
+        try:
             from huggingface_hub import HfApi
             api = HfApi()
             return list(
@@ -609,7 +614,7 @@ class HuggingFace:
                     pipeline_tag=task,
                     sort="downloads",
                     num_parameters=_MAX_PARAMS_FILTER,
-                    limit=_MAX_MODELS,
+                    limit=max_models,
                     expand=_EXPAND_FIELDS,
                 )
             )

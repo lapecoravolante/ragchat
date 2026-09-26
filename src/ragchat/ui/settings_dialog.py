@@ -26,6 +26,7 @@ _LABELS: dict[str, str] = {
     "query_model": "Modello LLM attivo",
     "query_models": "Modelli LLM disponibili",
     "top_k": "Top-K (numero risultati)",
+    "hf_max_models": "Limite modelli HuggingFace",
     "log_level": "Livello di logging",
     "default_db_path": "Percorso DB di default",
     "prompt_template": "Testo del prompt",
@@ -646,6 +647,9 @@ class SettingsDialog(tk.Toplevel):
         # ── top_k ───────────────────────────────────────────────────────
         row = self._add_spinbox_row(outer, row, "top_k", from_=1, to=20)
 
+        # ── hf_max_models ────────────────────────────────────────────────
+        row = self._add_spinbox_row(outer, row, "hf_max_models", from_=10, to=5000)
+
         # ── log_level ───────────────────────────────────────────────────
         row = self._add_combobox_row(outer, row, "log_level", _LOG_LEVELS)
 
@@ -940,9 +944,11 @@ class SettingsDialog(tk.Toplevel):
             else:
                 new_values[key] = widget.get()  # type: ignore[union-attr]
 
-        # Coerce top_k a intero (lo spinbox usa StringVar)
+        # Coerce top_k e hf_max_models a intero (lo spinbox usa StringVar)
         if "top_k" in new_values:
             new_values["top_k"] = int(new_values["top_k"])
+        if "hf_max_models" in new_values:
+            new_values["hf_max_models"] = int(new_values["hf_max_models"])
 
         # Raccoglie lista modelli (dict) e modello attivo (stringa id) dai ModelListWidget
         for kind, mw in self._model_widgets.items():

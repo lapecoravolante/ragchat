@@ -53,6 +53,7 @@ _DEFAULT_DATA: dict = {
     "query_models": list(_DEFAULT_QUERY_MODELS),
     "query_model": _DEFAULT_QUERY_MODELS[0]["id"],
     "top_k": 4,
+    "hf_max_models": 500,
     "log_level": "ERROR",
     "default_db_path": "",
     "prompt_template": (
@@ -166,3 +167,9 @@ class Config:
                 values["top_k"] = int(values["top_k"])
             except (TypeError, ValueError):
                 values["top_k"] = defaults["top_k"]
+
+        if "hf_max_models" in values:
+            try:
+                values["hf_max_models"] = int(values["hf_max_models"])
+            except (TypeError, ValueError):
+                values["hf_max_models"] = defaults["hf_max_models"]
