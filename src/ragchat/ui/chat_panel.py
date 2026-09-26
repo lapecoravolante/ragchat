@@ -1,3 +1,13 @@
+"""Pannello di chat — area destra dell'interfaccia principale.
+
+Contiene la cronologia della conversazione e il campo di input per
+inviare domande al modello LLM tramite la pipeline RAG.
+
+Le risposte vengono generate in un thread worker separato; i risultati
+vengono trasferiti al thread GUI tramite una :class:`queue.Queue`,
+evitando chiamate dirette a Tkinter da thread secondari.
+"""
+
 import logging
 import queue
 import threading
@@ -8,7 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 class ChatPanel(tk.Frame):
-    """Pannello destro: area di chat con il LLM tramite RAG."""
+    """Widget Tkinter che gestisce la cronologia della chat e l'input utente.
+
+    La generazione della risposta avviene in un thread daemon separato.
+    I risultati vengono trasferiti al thread GUI tramite
+    :attr:`_ui_queue`, che viene drenata periodicamente dal metodo
+    :meth:`_process_ui_queue` tramite ``after(50, ...)``.
+
+    Args:
+        parent: Widget Tkinter padre.
+        **kwargs: Argomenti aggiuntivi passati a :class:`tk.Frame`.
+    """
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
@@ -28,7 +48,8 @@ class ChatPanel(tk.Frame):
     # UI
     # ------------------------------------------------------------------
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
+        """Costruisce l'interfaccia: titolo, area cronologia, label stato, campo input."""
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 

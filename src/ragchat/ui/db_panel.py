@@ -1,4 +1,16 @@
-"""Pannello sinistro — gestione DB FAISS (apertura, creazione, ingestione)."""
+"""Pannello sinistro — gestione del database vettoriale FAISS.
+
+Contiene il widget :class:`DBPanel` che consente di:
+
+- aprire o creare una cartella DB FAISS tramite file dialog;
+- visualizzare i documenti indicizzati in una Listbox;
+- aggiungere nuovi documenti (ingestione via :mod:`ragchat.core.ingestor`);
+- rimuovere documenti esistenti dal DB.
+
+I lavori potenzialmente bloccanti (caricamento FAISS, ingestione Docling,
+rimozione) vengono eseguiti in thread daemon separati; i risultati vengono
+trasferiti al thread GUI tramite :class:`queue.Queue`.
+"""
 
 import logging
 import queue
@@ -265,7 +277,14 @@ class DBPanel(tk.Frame):
             pass
 
     def _run_on_ui(self, callback) -> None:
-        """Accoda una callback da eseguire nel thread GUI."""
+        """Accoda *callback* per l'esecuzione nel thread GUI.
+
+        Può essere chiamato da qualsiasi thread.  La callback verrà
+        eseguita da :meth:`_process_ui_queue` nel ciclo degli eventi Tkinter.
+
+        Args:
+            callback: callable senza argomenti da eseguire nel thread GUI.
+        """
         self._ui_queue.put(callback)
 
     # ------------------------------------------------------------------
@@ -620,7 +639,16 @@ class DBPanel(tk.Frame):
     # ------------------------------------------------------------------
 
     def _finish_db_change(self, store) -> None:
-        """Chiamato esclusivamente nel thread GUI dopo apertura/creazione DB."""
+        """Aggiorna il pannello al termine dell'apertura/creazione del DB.
+
+        Deve essere chiamato **esclusivamente nel thread GUI** (via
+        :meth:`_run_on_ui`).  Aggiorna :attr:`_store`, il percorso
+        mostrato, la listbox e riabilita i pulsanti.  Invoca infine
+        il callback :attr:`_on_db_changed` se impostato.
+
+        Args:
+            store: Istanza ``FAISSStore`` appena caricata o creata.
+        """
         logger.info(">>> _finish_db_change() INIZIO")
 
         self._store = store
@@ -662,7 +690,15 @@ class DBPanel(tk.Frame):
         logger.info(">>> _finish_db_change() FINE")
 
     def _finish_ingest(self, msg: str) -> None:
-        """Chiamato nel thread GUI al termine dell'ingestione."""
+        """Aggiorna il pannello al termine dell'ingestione dei documenti.
+
+        Deve essere chiamato nel thread GUI.  Aggiorna la listbox e
+        imposta il messaggio di stato con il riepilogo dell'operazione.
+
+        Args:
+            msg: Messaggio di riepilogo da mostrare nella label di stato
+                (es. ``"✔ 42 chunk indicizzati"``).
+        """
         logger.info("Completamento ingestione nel thread GUI")
 
         self.refresh_documents()
@@ -672,7 +708,15 @@ class DBPanel(tk.Frame):
         )
 
     def _finish_remove(self, filename: str) -> None:
-        """Chiamato nel thread GUI dopo la rimozione di un documento."""
+        """Aggiorna il pannello dopo la rimozione di un documento.
+
+        Deve essere chiamato nel thread GUI.  Aggiorna la listbox e
+        mostra la conferma di avvenuta rimozione nella label di stato.
+
+        Args:
+            filename: Nome del file appena rimosso (usato nel messaggio
+                di stato).
+        """
         logger.info(
             "Completamento rimozione nel thread GUI: %s",
             filename,
@@ -691,14 +735,25 @@ class DBPanel(tk.Frame):
         *,
         restore_buttons: bool = False,
     ) -> None:
-        """Aggiorna la label di stato."""
+        """Imposta il testo della label di stato.
+
+        Args:
+            msg: Testo da mostrare nella label di stato.
+            restore_buttons: Se ``True``, riabilita tutti i pulsanti
+                dopo l'aggiornamento del testo.
+        """
         self._status_var.set(msg)
 
         if restore_buttons:
             self._set_buttons_state("normal")
 
     def _set_buttons_state(self, state: str) -> None:
-        """Abilita o disabilita tutti i pulsanti del pannello."""
+        """Imposta lo stato di tutti i pulsanti del pannello.
+
+        Args:
+            state: Stato Tkinter da applicare ai pulsanti
+                (``"normal"`` oppure ``"disabled"``).
+        """
         for btn in (
             self._btn_open,
             self._btn_add,

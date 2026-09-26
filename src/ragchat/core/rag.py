@@ -69,15 +69,16 @@ class RAGChain:
             )
 
             # 5. LLM
-            from ragchat.core.llm import get_llm, is_llm_available  # lazy import
+            from ragchat.core.huggingface import HuggingFace  # lazy import
+            _hf = HuggingFace()
 
-            if not is_llm_available():
+            if not _hf.is_llm_available():
                 return (
                     "LLM non disponibile. "
                     "Installa llama-cpp-python per usare il chatbot."
                 )
 
-            llm = get_llm()
+            llm = _hf.get_llm()
             response = llm.invoke(prompt_text)
             return response.strip()
 

@@ -1,9 +1,15 @@
-"""Singleton lazy-loaded HuggingFace embedding model.
+"""Singleton lazy-loaded per il modello di embedding HuggingFace.
 
-    Il nome del modello attivo viene letto da ``ragchat.utils.config`` ogni volta che
-viene richiesta l'istanza.  Se il modello configurato e' cambiato rispetto a
-quello attualmente caricato, il vecchio singleton viene scartato e il nuovo
-modello sara' caricato al prossimo utilizzo (lazy reload).
+Il nome del modello attivo viene letto da :mod:`ragchat.utils.config`
+ogni volta che viene richiesta l'istanza.  Se il modello configurato
+è cambiato rispetto a quello attualmente caricato, il vecchio singleton
+viene scartato e il nuovo sarà caricato al prossimo accesso (lazy reload).
+
+Funzioni pubbliche:
+    :func:`get_embeddings` — restituisce il singleton corrente.
+    :func:`invalidate_embedding_cache` — forza il reload al prossimo accesso.
+    :func:`format_query` — prepend del prefisso ``query:`` per multilingual-e5.
+    :func:`format_passage` — prepend del prefisso ``passage:`` per multilingual-e5.
 """
 
 import logging
@@ -30,8 +36,12 @@ def _get_model_name() -> str:
         return "intfloat/multilingual-e5-large"
 
 
-# Disabilita la verifica dei certificati TLS per le connessioni HuggingFace.
 def _insecure_client_factory() -> httpx.Client:
+    """Crea un client ``httpx`` senza verifica dei certificati TLS.
+
+    Usato da ``huggingface_hub`` tramite :func:`set_client_factory` per
+    evitare errori di certificato in ambienti aziendali con proxy HTTPS.
+    """
     return httpx.Client(verify=False, follow_redirects=True)
 
 

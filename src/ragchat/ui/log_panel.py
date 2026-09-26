@@ -17,13 +17,21 @@ from tkinter import scrolledtext
 
 
 class _QueueHandler(logging.Handler):
-    """Handler che deposita ogni LogRecord in una queue.Queue thread-safe."""
+    """Handler che deposita ogni ``LogRecord`` in una ``queue.Queue`` thread-safe.
+
+    Consente di trasferire messaggi di log da qualsiasi thread al thread
+    GUI, dove vengono visualizzati nel widget di testo di :class:`LogPanel`.
+
+    Args:
+        log_queue: Coda thread-safe in cui inserire i messaggi formattati.
+    """
 
     def __init__(self, log_queue: queue.Queue) -> None:
         super().__init__()
         self._queue = log_queue
 
     def emit(self, record: logging.LogRecord) -> None:
+        """Formatta *record* e lo inserisce nella coda."""
         self._queue.put_nowait(self.format(record))
 
 
@@ -114,12 +122,14 @@ class LogPanel:
         self._poll()
 
     def _on_close(self) -> None:
+        """Gestisce la chiusura della finestra tramite il pulsante X."""
         if self._win is not None:
             self._win.destroy()
         self._win = None
         self._text = None
 
     def _clear(self) -> None:
+        """Cancella tutto il testo dal widget e svuota il buffer interno."""
         if self._text is not None:
             self._text.config(state=tk.NORMAL)
             self._text.delete("1.0", tk.END)
@@ -140,6 +150,15 @@ class LogPanel:
         self._win.after(self._POLL_MS, self._poll)
 
     def _append(self, msg: str) -> None:
+        """Aggiunge *msg* al widget di testo applicando il colore del livello.
+
+        Ricava il tag cromatico (``ERROR``, ``WARNING``, ``INFO``, ``DEBUG``)
+        cercando la stringa ``[LIVELLO]`` nel messaggio formattato.  Se non
+        viene trovato nessun livello noto, il testo viene inserito senza tag.
+
+        Args:
+            msg: Stringa già formattata da visualizzare.
+        """
         if self._text is None:
             return
         # Determina il tag dal livello nel messaggio formattato

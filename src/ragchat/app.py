@@ -3,6 +3,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
+import ragchat.vendor  # noqa: F401 – registra le DLL Windows all'avvio
 from ragchat.utils.config import Config
 from ragchat.ui.db_panel import DBPanel
 from ragchat.ui.chat_panel import ChatPanel

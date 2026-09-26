@@ -1,4 +1,19 @@
-"""Pipeline di ingestione documenti: Docling → chunking → FAISS store."""
+"""Pipeline di ingestione documenti: Docling → chunking → FAISS store.
+
+Il modulo espone due funzioni pubbliche:
+
+:func:`get_supported_extensions`
+    Restituisce il dizionario dei formati supportati da Docling, con le
+    relative estensioni file.
+
+:func:`ingest_document`
+    Esegue la pipeline completa su un singolo file: conversione Docling
+    in Markdown, suddivisione in chunk, inserimento nel FAISS store.
+
+Le dipendenze pesanti (``torch``, ``docling``, ``langchain``) vengono
+importate in modo *lazy* all'interno delle funzioni per ridurre i tempi
+di avvio dell'applicazione.
+"""
 
 import logging
 import os
@@ -11,12 +26,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def get_supported_extensions() -> dict[InputFormat, list[str]]:
-    """Restituisce le estensioni file supportate da Docling."""    
-    result={}
+def get_supported_extensions() -> dict[str, list[str]]:
+    """Restituisce le estensioni file supportate da Docling per formato.
+
+    Itera su :data:`docling.datamodel.base_models.FormatToExtensions` e
+    costruisce un dizionario che mappa il nome del formato (stringa) alla
+    lista di estensioni (senza punto) riconosciute da Docling.
+
+    Returns:
+        Dizionario ``{nome_formato: [estensione, ...]}`` dove
+        ``nome_formato`` è il nome dell'enum :class:`~docling.InputFormat`
+        (es. ``"PDF"``, ``"DOCX"``) e le estensioni sono stringhe come
+        ``["pdf"]`` o ``["docx", "dotx"]``.
+
+    Example::
+
+        >>> exts = get_supported_extensions()
+        >>> exts["PDF"]
+        ['pdf']
+    """
+    result: dict[str, list[str]] = {}
     for input_format, extensions in FormatToExtensions.items():
-        # input_format è un enum (es. InputFormat.PDF)
-        result[input_format.name]=extensions
+        result[input_format.name] = extensions
     return result
 
 

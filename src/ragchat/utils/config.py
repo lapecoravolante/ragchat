@@ -5,34 +5,53 @@ Il file viene cercato nella stessa cartella del package ``ragchat``
 quando si lancia con PyInstaller).
 Se non esiste viene creato automaticamente con i valori di default.
 
-Formato JSON nativo con tipi forti: le liste di modelli sono memorizzate
-come array JSON (``list[str]``) e ``top_k`` come intero.
+Formato JSON nativo con tipi forti.
+
+Le liste di modelli sono memorizzate come array JSON di dizionari con le chiavi:
+- ``id``: identificativo stringa del modello (repo-id o URL)
+- ``url``: URL di download del modello
+- ``format``: formato del file (``"gguf"``, ``"safetensors"``)
+- ``tags``: lista di stringhe da mostrare nel tooltip della UI
+
+I modelli attivi (``embedding_model`` e ``query_model``) sono stringhe
+con l'ID del modello selezionato.  ``top_k`` e' un intero.
 """
 
 import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _CONFIG_FILENAME = "config.json"
 
-# Modelli di embedding disponibili di default (il primo è quello attivo)
-_DEFAULT_EMBEDDING_MODELS = [
-    "intfloat/multilingual-e5-large",
+# Modelli di embedding disponibili di default
+_DEFAULT_EMBEDDING_MODELS: list[dict[str, Any]] = [
+    {
+        "id": "intfloat/multilingual-e5-large",
+        "url": "https://huggingface.co/intfloat/multilingual-e5-large",
+        "format": "safetensors",
+        "tags": ["feature-extraction", "multilingual", "sentence-similarity"],
+    },
 ]
 
-# Modelli LLM disponibili di default (il primo è quello attivo)
-_DEFAULT_QUERY_MODELS = [
-    "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/blob/main/gemma-2-2b-it-Q4_K_M.gguf",
+# Modelli LLM disponibili di default
+_DEFAULT_QUERY_MODELS: list[dict[str, Any]] = [
+    {
+        "id": "bartowski/gemma-2-2b-it-GGUF",
+        "url": "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
+        "format": "gguf",
+        "tags": ["text-generation", "gemma", "instruction-tuned", "Q4_K_M"],
+    },
 ]
 
 _DEFAULT_DATA: dict = {
     "embedding_models": list(_DEFAULT_EMBEDDING_MODELS),
-    "embedding_model": _DEFAULT_EMBEDDING_MODELS[0],
+    "embedding_model": _DEFAULT_EMBEDDING_MODELS[0]["id"],
     "query_models": list(_DEFAULT_QUERY_MODELS),
-    "query_model": _DEFAULT_QUERY_MODELS[0],
+    "query_model": _DEFAULT_QUERY_MODELS[0]["id"],
     "top_k": 4,
     "log_level": "ERROR",
     "default_db_path": "",
@@ -46,6 +65,26 @@ _DEFAULT_DATA: dict = {
         "Risposta:"
     ),
 }
+
+
+def model_entry_id(entry: dict) -> str:
+    """Restituisce l'ID di un'entrata modello."""
+    return entry.get("id", "")
+
+
+def model_entry_url(entry: dict) -> str:
+    """Restituisce l'URL di download di un'entrata modello."""
+    return entry.get("url", entry.get("id", ""))
+
+
+def model_entry_format(entry: dict) -> str:
+    """Restituisce il formato di un'entrata modello (``"gguf"`` o ``"safetensors"``)."""
+    return entry.get("format", "safetensors")
+
+
+def model_entry_tags(entry: dict) -> list[str]:
+    """Restituisce i tag di un'entrata modello."""
+    return list(entry.get("tags", []))
 
 
 class Config:
@@ -71,7 +110,7 @@ class Config:
 
         Returns:
             Dizionario chiave->valore con tutte le impostazioni e tipi nativi
-            JSON (``list[str]`` per le liste, ``int`` per ``top_k``).
+            JSON (``list[dict]`` per le liste modelli, ``int`` per ``top_k``).
         """
         path = cls.path()
 
@@ -106,11 +145,11 @@ class Config:
 
     @classmethod
     def _ensure_consistency(cls, values: dict) -> None:
-        """Garantisce che i modelli attivi siano presenti nelle liste.
+        """Garantisce coerenza della configurazione caricata.
 
-        Se il modello attivo non è nella lista corrispondente, viene
-        aggiunto in testa.  Eventuali chiavi mancanti vengono riempite
-        con i valori di default.
+        Riempie le chiavi mancanti con i valori di default, normalizza
+        ``top_k`` a intero e verifica che il modello attivo sia presente
+        nella lista corrispondente.
         """
         defaults = cls.get_defaults()
 
@@ -127,10 +166,3 @@ class Config:
                 values["top_k"] = int(values["top_k"])
             except (TypeError, ValueError):
                 values["top_k"] = defaults["top_k"]
-
-        for kind in ("embedding", "query"):
-            active = values[f"{kind}_model"]
-            lst = values[f"{kind}_models"]
-            if active not in lst:
-                lst.insert(0, active)
-                values[f"{kind}_models"] = lst
