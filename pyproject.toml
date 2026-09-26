@@ -36,10 +36,7 @@ dependencies = [
 #   normale pacchetto PyPI.
 #
 torch = [
-    {
-        url = "https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-win_amd64.whl",
-        marker = "sys_platform == 'win32' and platform_machine == 'AMD64'",
-    },
+    { url = "https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and platform_machine == 'AMD64'" },
 ]
 
 
@@ -51,15 +48,9 @@ torch = [
 # Linux x86_64:
 #   indice ufficiale contenente le wheel CPU precompilate.
 #
-llama-cpp-python = [
-    {
-        url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35/llama_cpp_python-0.3.35-py3-none-win_amd64.whl",
-        marker = "sys_platform == 'win32' and platform_machine == 'AMD64'",
-    },
-    {
-        index = "llama-cpp-python-cpu",
-        marker = "sys_platform == 'linux' and platform_machine == 'x86_64'",
-    },
+"llama-cpp-python" = [
+    { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35/llama_cpp_python-0.3.35-py3-none-win_amd64.whl", marker = "sys_platform == 'win32' and platform_machine == 'AMD64'" },
+    { index = "llama-cpp-python-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 
 
