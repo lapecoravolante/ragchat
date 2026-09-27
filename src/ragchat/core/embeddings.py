@@ -1,4 +1,4 @@
-"""Singleton lazy-loaded per il modello di embedding HuggingFace.
+"""Singleton caricato pigramente per il modello di embedding HuggingFace.
 
 Il nome del modello attivo viene letto da :mod:`ragchat.utils.config`
 ogni volta che viene richiesta l'istanza.  Se il modello configurato
@@ -8,8 +8,8 @@ viene scartato e il nuovo sarà caricato al prossimo accesso (lazy reload).
 Funzioni pubbliche:
     :func:`get_embeddings` — restituisce il singleton corrente.
     :func:`invalidate_embedding_cache` — forza il reload al prossimo accesso.
-    :func:`format_query` — prepend del prefisso ``query:`` per multilingual-e5.
-    :func:`format_passage` — prepend del prefisso ``passage:`` per multilingual-e5.
+    :func:`format_query` — aggiunge il prefisso ``query:`` (richiesto da multilingual-e5).
+    :func:`format_passage` — aggiunge il prefisso ``passage:`` (richiesto da multilingual-e5).
 """
 
 import logging
@@ -49,12 +49,12 @@ set_client_factory(_insecure_client_factory)
 
 
 def _resolve_model_path(model_name: str) -> tuple[str, bool]:
-    """Restituisce (model_name_or_path, local_files_only).
+    """Restituisce la coppia (percorso o nome del modello, solo file locali).
 
-    Se il modello e' gia' in cache HuggingFace restituisce il percorso locale
-    della snapshot directory e ``local_files_only=True``, cosi'
+    Se il modello è già nella cache HuggingFace, restituisce il percorso locale
+    della directory snapshot e ``local_files_only=True``, così
     sentence_transformers non effettua alcuna connessione di rete.
-    Se il modello non e' in cache restituisce il nome remoto e
+    Se il modello non è nella cache, restituisce il nome remoto e
     ``local_files_only=False`` per permettere il download.
     """
     try:
@@ -108,7 +108,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
 
 
 def invalidate_embedding_cache() -> None:
-    """Invalida il singleton embeddings, forzando un ricaricamento al prossimo get_embeddings()."""
+    """Invalida il singleton degli embedding e ne forza il ricaricamento al prossimo get_embeddings()."""
     global _embeddings_instance, _loaded_model_name
     _embeddings_instance = None
     _loaded_model_name = None
@@ -116,10 +116,18 @@ def invalidate_embedding_cache() -> None:
 
 
 def format_query(text: str) -> str:
-    """Prepend the 'query: ' prefix required by multilingual-e5 for user queries."""
+    """Aggiunge ``query: `` come prefisso per il modello di embedding configurato.
+
+    Il prefisso è richiesto da multilingual-e5 e viene aggiunto sempre;
+    il modello configurato deve quindi supportare questo formato di input.
+    """
     return "query: " + text
 
 
 def format_passage(text: str) -> str:
-    """Prepend the 'passage: ' prefix required by multilingual-e5 for document chunks."""
+    """Aggiunge ``passage: `` come prefisso per il modello di embedding configurato.
+
+    Il prefisso è richiesto da multilingual-e5 e viene aggiunto sempre;
+    il modello configurato deve quindi supportare questo formato di input.
+    """
     return "passage: " + text

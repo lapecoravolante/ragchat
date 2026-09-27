@@ -25,7 +25,7 @@ class ChatPanel(tk.Frame):
     :attr:`_ui_queue`, che viene drenata periodicamente dal metodo
     :meth:`_process_ui_queue` tramite ``after(50, ...)``.
 
-    Args:
+    Parametri:
         parent: Widget Tkinter padre.
         **kwargs: Argomenti aggiuntivi passati a :class:`tk.Frame`.
     """

@@ -22,7 +22,7 @@ class _QueueHandler(logging.Handler):
     Consente di trasferire messaggi di log da qualsiasi thread al thread
     GUI, dove vengono visualizzati nel widget di testo di :class:`LogPanel`.
 
-    Args:
+    Parametri:
         log_queue: Coda thread-safe in cui inserire i messaggi formattati.
     """
 
@@ -156,7 +156,7 @@ class LogPanel:
         cercando la stringa ``[LIVELLO]`` nel messaggio formattato.  Se non
         viene trovato nessun livello noto, il testo viene inserito senza tag.
 
-        Args:
+        Parametri:
             msg: Stringa già formattata da visualizzare.
         """
         if self._text is None:

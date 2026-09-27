@@ -39,9 +39,9 @@ class _Tooltip:
 
     def __init__(self, widget: tk.Widget, text_func) -> None:
         """
-        Args:
-            widget: il widget a cui associare il tooltip.
-            text_func: callable che restituisce il testo corrente del tooltip.
+        Parametri:
+            widget: widget a cui associare il tooltip.
+            text_func: callback che restituisce il testo aggiornato del tooltip.
         """
         self._widget = widget
         self._text_func = text_func
@@ -145,7 +145,7 @@ class _ModelListWidget(tk.Frame):
     Il modello selezionato nella combobox è quello che verrà salvato come
     ``<kind>_model``; la listbox mostra l'intera lista ``<kind>_models``.
 
-    Args:
+    Parametri:
         parent: widget padre.
         models: lista iniziale di dizionari modello.
         active: ID del modello da selezionare come attivo.
@@ -237,11 +237,11 @@ class _ModelListWidget(tk.Frame):
         Se il modello *active* non è presente nella nuova lista, la selezione
         ricade sul primo modello disponibile.
 
-        Args:
+        Parametri:
             new_models: nuova lista di dizionari modello.
             active: ID del modello da impostare come attivo.
 
-        Returns:
+        Restituisce:
             ID del modello effettivamente impostato come attivo.  Corrisponde
             ad *active* se il modello era nella nuova lista, altrimenti all'ID
             del primo modello della lista.
@@ -735,7 +735,7 @@ class SettingsDialog(tk.Toplevel):
     def _label(self, parent: tk.Widget, row: int, key: str) -> None:
         """Inserisce una label nella colonna 0 del form per la chiave *key*.
 
-        Args:
+        Parametri:
             parent: Widget contenitore (griglia).
             row:    Riga del grid in cui inserire la label.
             key:    Chiave di configurazione; il testo viene ricavato da
@@ -773,14 +773,14 @@ class SettingsDialog(tk.Toplevel):
     ) -> int:
         """Aggiunge una riga con una ``Spinbox`` al form.
 
-        Args:
+        Parametri:
             parent: Widget contenitore (griglia).
             row:    Riga di inserimento.
             key:    Chiave di configurazione da leggere/scrivere.
             from_:  Valore minimo dello spinbox.
             to:     Valore massimo dello spinbox.
 
-        Returns:
+        Restituisce:
             Indice della riga successiva (``row + 1``).
         """
         self._label(parent, row, key)
@@ -796,13 +796,13 @@ class SettingsDialog(tk.Toplevel):
     ) -> int:
         """Aggiunge una riga con una ``Combobox`` (sola lettura) al form.
 
-        Args:
+        Parametri:
             parent:  Widget contenitore (griglia).
             row:     Riga di inserimento.
             key:     Chiave di configurazione da leggere/scrivere.
             choices: Lista di valori ammessi nella combobox.
 
-        Returns:
+        Restituisce:
             Indice della riga successiva (``row + 1``).
         """
         self._label(parent, row, key)
@@ -817,12 +817,12 @@ class SettingsDialog(tk.Toplevel):
     def _add_path_row(self, parent: tk.Widget, row: int, key: str) -> int:
         """Aggiunge una riga con campo testo e pulsante "Sfoglia..." per un percorso.
 
-        Args:
+        Parametri:
             parent: Widget contenitore (griglia).
             row:    Riga di inserimento.
             key:    Chiave di configurazione (percorso cartella).
 
-        Returns:
+        Restituisce:
             Indice della riga successiva (``row + 1``).
         """
         self._label(parent, row, key)
@@ -858,12 +858,12 @@ class SettingsDialog(tk.Toplevel):
         viene memorizzato in :attr:`_vars` per essere letto in
         :meth:`_on_save`.
 
-        Args:
+        Parametri:
             parent: Widget contenitore (griglia).
             row:    Riga di inserimento.
             key:    Chiave di configurazione (testo libero multiriga).
 
-        Returns:
+        Restituisce:
             Indice della riga successiva (``row + 1``).
         """
         self._label(parent, row, key)
@@ -891,7 +891,7 @@ class SettingsDialog(tk.Toplevel):
     def _on_fetch_models(self, kind: str) -> None:
         """Avvia il download della lista modelli per *kind* in un thread separato.
 
-        Args:
+        Parametri:
             kind: ``"query"`` per i modelli LLM, ``"embedding"`` per gli embedding.
         """
         # Mappa kind → (pipeline_tag, label per messaggi)

@@ -18,7 +18,6 @@ di avvio dell'applicazione.
 import logging
 import os
 from typing import TYPE_CHECKING
-from docling.datamodel.base_models import FormatToExtensions, InputFormat
 
 if TYPE_CHECKING:
     from ragchat.core.vectorstore import FAISSStore
@@ -33,18 +32,21 @@ def get_supported_extensions() -> dict[str, list[str]]:
     costruisce un dizionario che mappa il nome del formato (stringa) alla
     lista di estensioni (senza punto) riconosciute da Docling.
 
-    Returns:
+    Restituisce:
         Dizionario ``{nome_formato: [estensione, ...]}`` dove
-        ``nome_formato`` è il nome dell'enum :class:`~docling.InputFormat`
+        ``nome_formato`` è il nome dell'enum
+        :class:`~docling.datamodel.base_models.InputFormat`
         (es. ``"PDF"``, ``"DOCX"``) e le estensioni sono stringhe come
         ``["pdf"]`` o ``["docx", "dotx"]``.
 
-    Example::
+    Esempio::
 
         >>> exts = get_supported_extensions()
         >>> exts["PDF"]
         ['pdf']
     """
+    from docling.datamodel.base_models import FormatToExtensions
+
     result: dict[str, list[str]] = {}
     for input_format, extensions in FormatToExtensions.items():
         result[input_format.name] = extensions
@@ -60,24 +62,25 @@ def ingest_document(file_path: str, faiss_store: "FAISSStore") -> int:
     4. Crea oggetti Document con metadati.
     5. Inserisce i chunk nel FAISS store.
 
-    Args:
+    Parametri:
         file_path: Percorso assoluto o relativo al documento da indicizzare.
         faiss_store: Istanza FAISSStore in cui inserire i chunk.
 
-    Returns:
+    Restituisce:
         Numero di chunk inseriti nel DB.
 
-    Raises:
-        FileNotFoundError: Se ``file_path`` non esiste.
-        ValueError: Se Docling non riesce a convertire il documento.
+    Solleva:
+        FileNotFoundError: se ``file_path`` non esiste.
+        ValueError: se Docling non riesce a convertire il documento.
+        ImportError: se manca una dipendenza necessaria alla pipeline.
     """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File non trovato: {file_path}")
+
     # Lazy imports per evitare caricamento di torch al semplice import del modulo
     from langchain_text_splitters.character import RecursiveCharacterTextSplitter
     from langchain_core.documents import Document
     from ragchat.core.embeddings import format_passage
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File non trovato: {file_path}")
 
     logger.info("Conversione documento con Docling: %s", file_path)
     try:
@@ -86,6 +89,8 @@ def ingest_document(file_path: str, faiss_store: "FAISSStore") -> int:
         converter = DocumentConverter()
         result = converter.convert(file_path)
         text = result.document.export_to_markdown()
+    except ImportError:
+        raise
     except Exception as e:
         raise ValueError(f"Impossibile convertire {file_path}: {e}") from e
 

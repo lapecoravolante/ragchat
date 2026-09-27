@@ -1,10 +1,10 @@
 """Package principale dell'applicazione RAG Chat.
 
-All'importazione viene eseguito il preload delle DLL VC++ incluse nel
+All'importazione vengono precaricate le DLL VC++ incluse nel
 vendor (solo Windows), in modo che ``llama_cpp`` possa trovare le
 dipendenze native prima di essere importato.
 
-Entry point:
+Punto di ingresso:
     :func:`main` — avvia la finestra principale Tkinter.
 """
 
@@ -46,7 +46,7 @@ from ragchat.app import MainApp  # noqa: E402  (deve venire dopo il preload)
 
 
 def main() -> None:
-    """Entry point dell'applicazione.
+    """Avvia l'applicazione.
 
     Configura il logging di base, crea l'istanza di
     :class:`~ragchat.app.MainApp` e avvia il loop eventi Tkinter.

@@ -5,6 +5,7 @@ Gestione persistenza JSON dei metadati dei documenti inseriti nel DB FAISS.
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -21,12 +22,6 @@ def _get_default_embedding_model() -> str:
         return "intfloat/multilingual-e5-large"
 
 
-# Struttura JSON: "embedding_model" traccia il modello usato per generare
-# gli embedding nel DB; "documents" mappa nomi file → chunk IDs.
-# ``embedding_model`` viene sempre impostato in load() al modello configurato.
-_EMPTY_STORE: dict = {"documents": {}}
-
-
 class MetadataStore:
     """Gestisce il file JSON dei metadati associato a un DB FAISS.
 
@@ -34,7 +29,7 @@ class MetadataStore:
     Ogni entrata mappa il nome del file sorgente ai chunk IDs corrispondenti
     e al timestamp di inserimento.
 
-    Args:
+    Parametri:
         db_path: Percorso della cartella contenente il DB FAISS.
     """
 
@@ -58,64 +53,122 @@ class MetadataStore:
         default_model = _get_default_embedding_model()
 
         if not os.path.exists(self._json_path):
-            self._data = dict(_EMPTY_STORE)
-            self._data["embedding_model"] = default_model
+            self._data = self._empty_data(default_model)
             self.save()
             return
 
         try:
             with open(self._json_path, encoding="utf-8") as fh:
-                self._data = json.load(fh)
-            if self._data.get("embedding_model") is None:
-                self._data["embedding_model"] = default_model
-            if "documents" not in self._data:
-                self._data["documents"] = {}
-            self.save()
+                data = json.load(fh)
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
                 "Impossibile leggere '%s' (%s). Il file verrà reinizializzato.",
                 self._json_path,
                 exc,
             )
-            self._data = dict(_EMPTY_STORE)
-            self._data["embedding_model"] = default_model
+            self._data = self._empty_data(default_model)
             self.save()
+            return
+
+        if not isinstance(data, dict) or not isinstance(data.get("documents", {}), dict):
+            logger.warning(
+                "Struttura metadata non valida in '%s'. Il file verrà reinizializzato.",
+                self._json_path,
+            )
+            self._data = self._empty_data(default_model)
+            self.save()
+            return
+
+        self._data = data
+        if self._data.get("embedding_model") is None:
+            self._data["embedding_model"] = default_model
+        if "documents" not in self._data:
+            self._data["documents"] = {}
+        self.save()
+
+    @staticmethod
+    def _empty_data(default_model: str) -> dict:
+        """Crea uno stato vuoto indipendente per questo metadata store."""
+        return {"documents": {}, "embedding_model": default_model}
 
     def save(self) -> None:
-        """Serializza e salva il JSON su disco."""
+        """Serializza il JSON e sostituisce il file solo dopo una scrittura completa."""
+        temp_path = None
         try:
-            with open(self._json_path, "w", encoding="utf-8") as fh:
+            directory = os.path.dirname(self._json_path) or "."
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=directory,
+                prefix=".metadata-",
+                suffix=".tmp",
+                delete=False,
+            ) as fh:
+                temp_path = fh.name
                 json.dump(self._data, fh, ensure_ascii=False, indent=2)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(temp_path, self._json_path)
         except OSError as exc:
             logger.error("Impossibile salvare '%s': %s", self._json_path, exc)
+            raise
+        finally:
+            if temp_path is not None and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    logger.warning("Impossibile rimuovere il file temporaneo '%s'.", temp_path)
 
     # ------------------------------------------------------------------
     # API documenti
     # ------------------------------------------------------------------
 
-    def add_document(self, name: str, chunk_ids: list[int]) -> None:
+    def add_document(
+        self,
+        name: str,
+        chunk_ids: list[str],
+        *,
+        embedding_model: str | None = None,
+    ) -> None:
         """Aggiunge o sostituisce l'entrata per il documento *name*.
 
         Salva automaticamente dopo la modifica.
         """
+        previous = self._data["documents"].get(name)
+        previous_model = self._data.get("embedding_model")
         self._data["documents"][name] = {
             "filename": name,
             "chunk_ids": chunk_ids,
             "inserted_at": datetime.now().isoformat(timespec="seconds"),
         }
-        self.save()
+        if embedding_model is not None:
+            self._data["embedding_model"] = embedding_model
+        try:
+            self.save()
+        except OSError:
+            if previous is None:
+                self._data["documents"].pop(name, None)
+            else:
+                self._data["documents"][name] = previous
+            if embedding_model is not None:
+                self._data["embedding_model"] = previous_model
+            raise
 
-    def remove_document(self, name: str) -> list[int]:
+    def remove_document(self, name: str) -> list[str]:
         """Rimuove l'entrata del documento *name*.
 
-        Returns:
+        Restituisce:
             Lista dei chunk IDs associati al documento, o lista vuota se
             il documento non era presente.
         """
         entry = self._data["documents"].pop(name, None)
         if entry is None:
             return []
-        self.save()
+        try:
+            self.save()
+        except OSError:
+            self._data["documents"][name] = entry
+            raise
         return entry.get("chunk_ids", [])
 
     def list_documents(self) -> list[dict]:
@@ -138,6 +191,14 @@ class MetadataStore:
 
     def set_embedding_model(self, model_name: str) -> None:
         """Imposta il nome del modello di embedding usato nel DB e salva su disco."""
+        previous = self._data.get("embedding_model")
         self._data["embedding_model"] = model_name
-        self.save()
+        try:
+            self.save()
+        except OSError:
+            if previous is None:
+                self._data.pop("embedding_model", None)
+            else:
+                self._data["embedding_model"] = previous
+            raise
         logger.debug("Modello embedding registrato nel metadata: %s", model_name)

@@ -109,7 +109,7 @@ class Config:
     def load(cls) -> dict:
         """Carica la configurazione da disco; crea il file con i default se assente.
 
-        Returns:
+        Restituisce:
             Dizionario chiave->valore con tutte le impostazioni e tipi nativi
             JSON (``list[dict]`` per le liste modelli, ``int`` per ``top_k``).
         """
@@ -127,6 +127,15 @@ class Config:
                 logger.error("Errore lettura %s (%s): ripristino default", path, exc)
                 values = cls.get_defaults()
                 cls.save(values)
+            else:
+                if not isinstance(values, dict):
+                    logger.error(
+                        "La configurazione %s non contiene un oggetto JSON: "
+                        "ripristino default",
+                        path,
+                    )
+                    values = cls.get_defaults()
+                    cls.save(values)
             logger.debug("Configurazione caricata da %s", path)
 
         cls._ensure_consistency(values)
@@ -136,8 +145,8 @@ class Config:
     def save(cls, values: dict) -> None:
         """Salva *values* nel file config.json.
 
-        Args:
-            values: Dizionario chiave->valore da persistere.
+        Parametri:
+            values: Dizionario chiave-valore da salvare.
         """
         path = cls.path()
         with path.open("w", encoding="utf-8") as fh:
@@ -146,11 +155,11 @@ class Config:
 
     @classmethod
     def _ensure_consistency(cls, values: dict) -> None:
-        """Garantisce coerenza della configurazione caricata.
+        """Aggiunge impostazioni mancanti e normalizza i limiti numerici.
 
-        Riempie le chiavi mancanti con i valori di default, normalizza
-        ``top_k`` a intero e verifica che il modello attivo sia presente
-        nella lista corrispondente.
+        Riempie le chiavi mancanti con i valori di default e converte
+        ``top_k`` e ``hf_max_models`` a interi, ripiegando sui default
+        quando i valori non sono convertibili.
         """
         defaults = cls.get_defaults()
 

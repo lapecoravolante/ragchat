@@ -39,7 +39,7 @@ class DBPanel(tk.Frame):
                  log_panel=None, **kwargs):
         """Costruisce il pannello.
 
-        Args:
+        Parametri:
             parent: Widget Tkinter padre.
             on_db_changed: Callback ``on_db_changed(faiss_store: FAISSStore)``
                 chiamato ogni volta che il DB attivo cambia.
@@ -282,7 +282,7 @@ class DBPanel(tk.Frame):
         Può essere chiamato da qualsiasi thread.  La callback verrà
         eseguita da :meth:`_process_ui_queue` nel ciclo degli eventi Tkinter.
 
-        Args:
+        Parametri:
             callback: callable senza argomenti da eseguire nel thread GUI.
         """
         self._ui_queue.put(callback)
@@ -294,7 +294,7 @@ class DBPanel(tk.Frame):
     def set_store(self, store) -> None:
         """Aggiorna il pannello con un nuovo FAISSStore.
 
-        Args:
+        Parametri:
             store: Istanza ``FAISSStore`` da rendere attiva.
         """
         self._store = store
@@ -340,7 +340,7 @@ class DBPanel(tk.Frame):
         Se il DB contiene un modello diverso, mostra un dialogo all'utente.
         Se l'utente accetta, aggiorna la config e invalida il singleton embeddings.
 
-        Returns:
+        Restituisce:
             True se il DB può essere caricato, False se l'utente ha annullato.
         """
         from ragchat.utils.metadata import MetadataStore
@@ -646,7 +646,7 @@ class DBPanel(tk.Frame):
         mostrato, la listbox e riabilita i pulsanti.  Invoca infine
         il callback :attr:`_on_db_changed` se impostato.
 
-        Args:
+        Parametri:
             store: Istanza ``FAISSStore`` appena caricata o creata.
         """
         logger.info(">>> _finish_db_change() INIZIO")
@@ -695,7 +695,7 @@ class DBPanel(tk.Frame):
         Deve essere chiamato nel thread GUI.  Aggiorna la listbox e
         imposta il messaggio di stato con il riepilogo dell'operazione.
 
-        Args:
+        Parametri:
             msg: Messaggio di riepilogo da mostrare nella label di stato
                 (es. ``"✔ 42 chunk indicizzati"``).
         """
@@ -713,7 +713,7 @@ class DBPanel(tk.Frame):
         Deve essere chiamato nel thread GUI.  Aggiorna la listbox e
         mostra la conferma di avvenuta rimozione nella label di stato.
 
-        Args:
+        Parametri:
             filename: Nome del file appena rimosso (usato nel messaggio
                 di stato).
         """
@@ -737,7 +737,7 @@ class DBPanel(tk.Frame):
     ) -> None:
         """Imposta il testo della label di stato.
 
-        Args:
+        Parametri:
             msg: Testo da mostrare nella label di stato.
             restore_buttons: Se ``True``, riabilita tutti i pulsanti
                 dopo l'aggiornamento del testo.
@@ -750,7 +750,7 @@ class DBPanel(tk.Frame):
     def _set_buttons_state(self, state: str) -> None:
         """Imposta lo stato di tutti i pulsanti del pannello.
 
-        Args:
+        Parametri:
             state: Stato Tkinter da applicare ai pulsanti
                 (``"normal"`` oppure ``"disabled"``).
         """

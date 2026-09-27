@@ -14,14 +14,15 @@ logger = logging.getLogger(__name__)
 class RAGChain:
     """Catena RAG che combina retrieval FAISS, prompt e LLM locale.
 
-    Args:
+    Parametri:
         faiss_store: Istanza :class:`~ragchat.core.vectorstore.FAISSStore`
-            già caricata.  Il LLM **non** viene caricato nel costruttore
-            (lazy loading in :meth:`ask`).
+            già caricata. Il LLM viene caricato pigramente alla prima richiesta
+            e riutilizzato; viene ricaricato quando cambia il modello configurato.
     """
 
     def __init__(self, faiss_store: FAISSStore) -> None:
         self._store = faiss_store
+        self._hf = None
 
     # ------------------------------------------------------------------
     # API pubblica
@@ -32,14 +33,14 @@ class RAGChain:
 
         Pipeline:
         1. Verifica che il DB non sia vuoto.
-        2. Recupera i chunk più rilevanti dal FAISS store (top-4).
+        2. Recupera dal FAISS store il numero di chunk configurato in ``top_k``.
         3. Costruisce il prompt con il contesto recuperato.
         4. Invoca il LLM locale e restituisce la risposta.
 
-        Args:
+        Parametri:
             question: Domanda dell'utente in linguaggio naturale.
 
-        Returns:
+        Restituisce:
             Stringa di risposta oppure un messaggio informativo se il DB è
             vuoto o il LLM non è disponibile.
         """
@@ -69,16 +70,17 @@ class RAGChain:
             )
 
             # 5. LLM
-            from ragchat.core.huggingface import HuggingFace  # lazy import
-            _hf = HuggingFace()
+            if self._hf is None:
+                from ragchat.core.huggingface import HuggingFace  # lazy import
+                self._hf = HuggingFace()
 
-            if not _hf.is_llm_available():
+            if not self._hf.is_llm_available():
                 return (
                     "LLM non disponibile. "
                     "Installa llama-cpp-python per usare il chatbot."
                 )
 
-            llm = _hf.get_llm()
+            llm = self._hf.get_llm()
             response = llm.invoke(prompt_text)
             return response.strip()
 
@@ -87,9 +89,9 @@ class RAGChain:
             return f"Si è verificato un errore durante l'elaborazione: {exc}"
 
     def update_store(self, faiss_store: FAISSStore) -> None:
-        """Aggiorna il FAISSStore (chiamato quando l'utente cambia DB).
+        """Aggiorna il FAISSStore senza invalidare l'LLM già caricato.
 
-        Args:
+        Parametri:
             faiss_store: Nuova istanza :class:`~ragchat.core.vectorstore.FAISSStore`.
         """
         self._store = faiss_store

@@ -15,9 +15,9 @@ HuggingFace nell'applicazione:
    ``snapshot_download`` (per i modelli safetensors).
 
 3. **Caricamento LLM** — istanzia il singleton LLM (``LlamaCpp`` per i file
-   GGUF, ``HuggingFacePipeline`` per i repo safetensors) e lo mantiene in vita
-   per la durata della sessione; lo invalida e ricarica automaticamente se il
-   modello attivo cambia nella configurazione.
+   GGUF, ``HuggingFacePipeline`` per i repo safetensors) e lo mantiene condiviso
+   tra le istanze per la durata della sessione; lo invalida e ricarica
+   automaticamente se il modello attivo cambia nella configurazione.
 
 Ogni modello nella lista è un dizionario con le chiavi:
 
@@ -80,7 +80,10 @@ except (ImportError, RuntimeError, OSError):
 
 
 class HuggingFace:
-    """Gestisce la lista dei modelli HuggingFace e il ciclo di vita del LLM locale.
+    """Gestisce i modelli HuggingFace e il singleton LLM della sessione.
+
+    L'istanza LLM è condivisa tra tutti gli oggetti ``HuggingFace`` e viene
+    sostituita soltanto quando cambia lo spec del modello configurato.
 
     Esempio::
 
@@ -89,17 +92,18 @@ class HuggingFace:
         # Lista modelli da HuggingFace (max 3B parametri, server-side)
         models = hf.fetch_model_list(on_progress=lambda c, t: ...)
 
-        # LLM locale (singleton lazy)
+        # LLM locale condiviso tra le istanze (singleton lazy)
         if hf.is_llm_available():
             llm = hf.get_llm()
             answer = llm.invoke(prompt)
     """
 
+    # L'istanza caricata è condivisa tra gli oggetti HuggingFace della sessione.
+    _llm_instance = None
+    _loaded_spec: Optional[str] = None
+
     def __init__(self) -> None:
-        """Inizializza la classe."""
-        # Singleton LLM e spec (URL o repo-id) con cui è stato creato
-        self._llm_instance = None
-        self._loaded_spec: Optional[str] = None
+        """Inizializza il client; il singleton LLM è condiviso tra le istanze."""
 
     # ------------------------------------------------------------------
     # Disponibilità LLM
@@ -107,7 +111,7 @@ class HuggingFace:
 
     @staticmethod
     def is_llm_available() -> bool:
-        """Restituisce True se llama-cpp-python oppure transformers è installato."""
+        """Restituisce ``True`` se è installato llama-cpp-python o transformers."""
         if _LLAMA_AVAILABLE:
             return True
         try:
@@ -122,14 +126,14 @@ class HuggingFace:
 
     @staticmethod
     def get_active_model_spec() -> str:
-        """Legge lo spec (URL o repo-id) del modello LLM attivo dalla configurazione.
+        """Legge dalla configurazione lo spec (URL o repo-id) del modello LLM attivo.
 
         Cerca nella lista ``query_models`` il dizionario il cui ``id`` corrisponde
         a ``query_model`` e ne restituisce il campo ``url``.  Questa stringa è
-        usata internamente per distinguere i modelli GGUF (URL con path di file)
+        usata internamente per distinguere i modelli GGUF (URL con percorso del file)
         dai modelli safetensors (repo-id semplice) e come chiave del singleton LLM.
 
-        Returns:
+        Restituisce:
             URL HuggingFace al file specifico (es. ``…/resolve/main/model.gguf``)
             oppure repo-id semplice (es. ``"owner/repo"``).
         """
@@ -152,9 +156,9 @@ class HuggingFace:
 
     @staticmethod
     def _parse_hf_url(url: str) -> Tuple[str, str]:
-        """Estrae ``(repo_id, filename)`` da una URL HuggingFace.
+        """Estrae ``(repo_id, filename)`` da un URL HuggingFace.
 
-        Raises:
+        Solleva:
             ValueError: se l'URL non è valida.
         """
         match = _HF_URL_RE.match(url)
@@ -164,21 +168,21 @@ class HuggingFace:
 
     @staticmethod
     def _is_hf_url(spec: str) -> bool:
-        """Restituisce True se *spec* è una URL HuggingFace a un file specifico."""
+        """Restituisce ``True`` se *spec* è un URL HuggingFace riferito a un file specifico."""
         return _HF_URL_RE.match(spec) is not None
 
     @staticmethod
     def _build_model_url(repo_id: str, filename: Optional[str] = None) -> str:
-        """Costruisce l'URL canonica per un modello o un file su HuggingFace.
+        """Costruisce l'URL canonico per un modello o un file su HuggingFace.
 
-        Args:
+        Parametri:
             repo_id: identificativo del repository (es. ``"owner/repo"``).
             filename: nome del file all'interno del repo
                 (es. ``"model-Q4_K_M.gguf"``).  Se fornito, l'URL punta al
                 file tramite il branch ``main``; se ``None``, l'URL punta alla
                 radice del repository.
 
-        Returns:
+        Restituisce:
             URL nella forma ``https://huggingface.co/{repo_id}/resolve/main/{filename}``
             oppure ``https://huggingface.co/{repo_id}``.
         """
@@ -188,12 +192,12 @@ class HuggingFace:
 
     @staticmethod
     def _resolve_model_spec(spec: str) -> Tuple[str, Optional[str]]:
-        """Risolve uno spec modello nella coppia ``(repo_id, filename)``.
+        """Converte lo spec di un modello nella coppia ``(repo_id, filename)``.
 
-        Args:
+        Parametri:
             spec: URL HuggingFace a un file specifico oppure repo-id semplice.
 
-        Returns:
+        Restituisce:
             ``(repo_id, filename)`` se *spec* è un'URL HuggingFace valida,
             oppure ``(spec, None)`` se *spec* è un repo-id semplice.
         """
@@ -206,18 +210,18 @@ class HuggingFace:
     # ------------------------------------------------------------------
 
     def get_cached_model_path(self) -> Optional[str]:
-        """Restituisce il percorso locale del modello attivo se già presente in cache.
+        """Restituisce il percorso locale del modello attivo, se già presente nella cache.
 
         Legge lo spec del modello attivo tramite :meth:`get_active_model_spec` e
         controlla la cache di HuggingFace Hub senza effettuare alcun download.
 
-        Per i modelli GGUF (spec = URL con path di file) usa
+        Per i modelli GGUF (spec = URL con percorso di un file) usa
         ``try_to_load_from_cache`` cercando il file specifico.
         Per i modelli safetensors (spec = repo-id) usa ``snapshot_download``
         con ``local_files_only=True``.
 
-        Returns:
-            Percorso assoluto al file GGUF in cache, o alla directory dello
+        Restituisce:
+            Percorso assoluto al file GGUF nella cache o alla cartella dello
             snapshot, se il modello è già stato scaricato; ``None`` altrimenti.
         """
         spec = self.get_active_model_spec()
@@ -250,21 +254,21 @@ class HuggingFace:
     def download_model(self, spec: Optional[str] = None) -> str:
         """Scarica il modello da HuggingFace Hub e restituisce il percorso locale.
 
-        Se *spec* è un'URL HuggingFace con path di file, usa ``hf_hub_download``
+        Se *spec* è un URL HuggingFace con percorso di un file, usa ``hf_hub_download``
         per scaricare quel solo file (tipicamente un ``.gguf``).
         Se *spec* è un repo-id semplice, usa ``snapshot_download`` per scaricare
         l'intero contenuto del repository.
 
-        Args:
+        Parametri:
             spec: URL HuggingFace a un file specifico oppure repo-id semplice.
                 Se ``None``, lo spec viene letto dalla configurazione tramite
                 :meth:`get_active_model_spec`.
 
-        Returns:
+        Restituisce:
             Percorso assoluto al file scaricato (GGUF) o alla directory dello
             snapshot (repo-id).
 
-        Raises:
+        Solleva:
             RuntimeError: se ``huggingface_hub`` non è installato o il download
                 fallisce.
         """
@@ -296,7 +300,7 @@ class HuggingFace:
     # ------------------------------------------------------------------
 
     def get_llm(self):
-        """Restituisce il singleton LLM per il modello attivo (lazy, con auto-reload).
+        """Restituisce il singleton LLM per il modello attivo (caricamento lazy e ricaricamento automatico).
 
         Legge lo spec del modello attivo tramite :meth:`get_active_model_spec`.
         Se lo spec è cambiato rispetto all'ultima chiamata, il singleton
@@ -313,39 +317,40 @@ class HuggingFace:
            ``transformers`` tramite ``HuggingFacePipeline``
            (richiede ``transformers`` e ``langchain-community``).
 
-        Returns:
+        Restituisce:
             Istanza LLM già caricata (``LlamaCpp`` o ``HuggingFacePipeline``).
 
-        Raises:
+        Solleva:
             ImportError: se ``llama-cpp-python``, ``transformers`` o
                 ``langchain-community`` non sono installati.
             RuntimeError: se il download del modello fallisce.
         """
         spec = self.get_active_model_spec()
 
-        if self._llm_instance is not None and self._loaded_spec != spec:
+        cls = type(self)
+        if cls._llm_instance is not None and cls._loaded_spec != spec:
             logger.info(
                 "Modello LLM cambiato (%s -> %s): singleton scartato.",
-                self._loaded_spec, spec,
+                cls._loaded_spec, spec,
             )
-            self._llm_instance = None
-            self._loaded_spec = None
+            cls._llm_instance = None
+            cls._loaded_spec = None
 
-        if self._llm_instance is not None:
-            return self._llm_instance
+        if cls._llm_instance is not None:
+            return cls._llm_instance
 
         model_path = self.get_cached_model_path()
         if model_path is None:
             model_path = self.download_model(spec)
 
         if self._is_hf_url(spec):
-            self._llm_instance = self._create_llama_cpp(model_path)
+            cls._llm_instance = self._create_llama_cpp(model_path)
         else:
-            self._llm_instance = self._create_hf_llm(model_path)
+            cls._llm_instance = self._create_hf_llm(model_path)
 
-        self._loaded_spec = spec
+        cls._loaded_spec = spec
         logger.info("LLM '%s' pronto.", spec)
-        return self._llm_instance
+        return cls._llm_instance
 
     # ------------------------------------------------------------------
     # Lista modelli da HuggingFace API
@@ -361,16 +366,16 @@ class HuggingFace:
         - ``text-generation`` (LLM) in formato GGUF o safetensors
         - ``feature-extraction`` (embedding) in formato safetensors
 
-        Args:
+        Parametri:
             on_progress: callback opzionale ``(current, total)`` per la
                 progress bar.  ``current`` va da 0 a ``total`` incluso.
 
-        Returns:
+        Restituisce:
             Dict con chiavi ``"query_models"`` e ``"embedding_models"``,
             ciascuna contenente una ``list[dict]`` con chiavi
             ``id``, ``url``, ``format``, ``tags``.
 
-        Raises:
+        Solleva:
             RuntimeError: se la connessione a HuggingFace fallisce.
         """
         steps = [
@@ -411,12 +416,12 @@ class HuggingFace:
         restituito costruisce il dizionario con le chiavi ``id``, ``url``,
         ``format``, ``tags`` e ``pipeline_tag``.
 
-        Args:
+        Parametri:
             task: pipeline tag HuggingFace (es. ``"text-generation"``).
             preferred_formats: formati da cercare in ordine di priorità
                 (es. ``["gguf", "safetensors"]``).
 
-        Returns:
+        Restituisce:
             Lista di dizionari modello pronti per la configurazione, ordinata
             alfabeticamente per ``id``.
         """
@@ -464,7 +469,7 @@ class HuggingFace:
         tags: list[str],
         preferred_formats: list[str],
     ) -> tuple[Optional[str], str]:
-        """Determina il formato e l'URL di download ottimali per un modello.
+        """Determina il formato e l'URL di download più adatti per un modello.
 
         Scorre *preferred_formats* in ordine e restituisce al primo formato
         trovato:
@@ -477,18 +482,18 @@ class HuggingFace:
 
         Se nessun formato preferito è rilevabile restituisce ``(None, url_repo)``.
 
-        Args:
+        Parametri:
             repo_id: identificativo del repository (es. ``"owner/repo"``).
             siblings: lista di oggetti ``RepoSibling`` (o dict con ``rfilename``).
             tags: lista di tag stringa del repository.
             preferred_formats: formati da cercare in ordine di priorità.
 
-        Returns:
+        Restituisce:
             Tupla ``(formato, url)`` dove *formato* è ``"gguf"``,
             ``"safetensors"`` oppure ``None`` se non determinabile.
         """
         def _rfilename(s) -> str:
-            """Estrae il nome file sia da RepoSibling che da dict."""
+            """Estrae il nome del file da un oggetto RepoSibling o da un dict."""
             if hasattr(s, "rfilename"):
                 return s.rfilename or ""
             return s.get("rfilename", "") if isinstance(s, dict) else ""
@@ -521,19 +526,19 @@ class HuggingFace:
         return None, HuggingFace._build_model_url(repo_id)
 
     def fetch_model_info(self, repo_id: str) -> dict[str, Any]:
-        """Recupera da HuggingFace i metadati di un singolo repository e restituisce
-        un dizionario modello pronto all'uso (stesso formato di :meth:`fetch_model_list`).
+        """Recupera da HuggingFace i metadati di un repository e restituisce
+        un dizionario modello pronto all'uso (nello stesso formato di :meth:`fetch_model_list`).
 
-        Args:
+        Parametri:
             repo_id: identificativo del repository, es. ``"bartowski/gemma-2-2b-it-GGUF"``.
                 Può contenere anche un'URL HuggingFace completa: in tal caso viene
                 estratto automaticamente il ``repo_id``.
 
-        Returns:
+        Restituisce:
             Dizionario con chiavi ``id``, ``url``, ``format``, ``tags``,
             ``pipeline_tag``.
 
-        Raises:
+        Solleva:
             RuntimeError: se il repository non esiste o la connessione fallisce.
         """
         # Normalizza: se l'utente incolla un'URL estrae il repo_id
@@ -591,13 +596,13 @@ class HuggingFace:
         modelli troppo grandi, ordina per download decrescente e recupera al
         massimo ``_MAX_MODELS`` risultati.
 
-        Args:
+        Parametri:
             task: pipeline tag HuggingFace (es. ``"text-generation"``).
 
-        Returns:
+        Restituisce:
             Iterabile di oggetti ``ModelInfo``.
 
-        Raises:
+        Solleva:
             RuntimeError: se la connessione a HuggingFace fallisce.
         """
         logger.debug("Ricerca modelli HuggingFace: task=%s", task)
@@ -629,15 +634,15 @@ class HuggingFace:
 
     @staticmethod
     def _create_llama_cpp(model_path: str):
-        """Istanzia e restituisce un oggetto ``LlamaCpp`` da un file GGUF locale.
+        """Crea e restituisce un oggetto ``LlamaCpp`` a partire da un file GGUF locale.
 
-        Args:
+        Parametri:
             model_path: percorso assoluto al file ``.gguf`` già scaricato.
 
-        Returns:
+        Restituisce:
             Istanza ``langchain_community.llms.LlamaCpp`` pronta per l'uso.
 
-        Raises:
+        Solleva:
             ImportError: se ``llama-cpp-python`` o ``langchain-community``
                 non sono installati.
         """
@@ -672,15 +677,15 @@ class HuggingFace:
         ``text-generation`` e la avvolge in ``HuggingFacePipeline`` di
         ``langchain-community``.
 
-        Args:
+        Parametri:
             repo_path: percorso assoluto alla directory snapshot del repository
                 (restituita da ``snapshot_download``).
 
-        Returns:
+        Restituisce:
             Istanza ``langchain_community.llms.HuggingFacePipeline`` pronta
             per l'uso.
 
-        Raises:
+        Solleva:
             ImportError: se ``transformers`` o ``langchain-community``
                 non sono installati.
         """

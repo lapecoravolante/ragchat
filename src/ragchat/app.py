@@ -44,6 +44,7 @@ class MainApp(tk.Tk):
         # ── Pannello log (singleton) ─────────────────────────────────────
         self._log_panel = LogPanel(self)
         self._log_panel.install()
+        self._rag_chain = None
 
         # Layout principale: pannello sinistro (DB) + pannello destro (Chat)
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -68,10 +69,13 @@ class MainApp(tk.Tk):
     def _on_db_changed(self, faiss_store) -> None:
         from ragchat.core.rag import RAGChain
 
-        rag_chain = RAGChain(faiss_store)
-        self._chat_panel.set_rag_chain(rag_chain)
+        if self._rag_chain is None:
+            self._rag_chain = RAGChain(faiss_store)
+        else:
+            self._rag_chain.update_store(faiss_store)
+        self._chat_panel.set_rag_chain(self._rag_chain)
         self._db_panel.set_store(faiss_store)
-        logger.info("DB aggiornato: RAGChain ricreata.")
+        logger.info("DB aggiornato nella RAGChain esistente.")
 
     def _load_default_db(self) -> None:
         # Legge il path dalla configurazione; se vuoto usa il fallback storico

@@ -24,7 +24,7 @@ class FAISSStore:
     La sincronizzazione dei metadati (nome file → chunk IDs) è delegata a
     :class:`~ragchat.utils.metadata.MetadataStore`.
 
-    Args:
+    Parametri:
         db_path: Percorso della cartella che contiene (o conterrà) il DB.
     """
 
@@ -44,10 +44,10 @@ class FAISSStore:
         La cartella viene creata se non esiste.  Il DB fisico viene
         inizializzato solo al primo :meth:`add_documents` (``_db = None``).
 
-        Args:
+        Parametri:
             db_path: Percorso della cartella di destinazione.
 
-        Returns:
+        Restituisce:
             Istanza ``FAISSStore`` pronta all'uso.
         """
         os.makedirs(db_path, exist_ok=True)
@@ -61,10 +61,10 @@ class FAISSStore:
         Se la cartella è vuota o non contiene un DB FAISS valido, ``_db``
         rimane ``None`` (nessun errore viene sollevato).
 
-        Args:
+        Parametri:
             db_path: Percorso della cartella del DB.
 
-        Returns:
+        Restituisce:
             Istanza ``FAISSStore`` con il DB caricato (o vuota se assente).
         """
         store = cls(db_path)
@@ -94,11 +94,19 @@ class FAISSStore:
     # ------------------------------------------------------------------
 
     def save(self) -> None:
-        """Salva il DB su disco.  Se ``_db`` è ``None`` non fa nulla."""
+        """Salva il DB su disco. Se ``_db`` è ``None`` non fa nulla."""
         if self._db is None:
             return
         self._db.save_local(self.db_path)
         logger.debug("DB FAISS salvato in '%s'.", self.db_path)
+
+    def _remove_saved_index(self) -> None:
+        """Rimuove i file persistiti dell'indice vuoto."""
+        for filename in ("index.faiss", "index.pkl"):
+            try:
+                os.remove(os.path.join(self.db_path, filename))
+            except FileNotFoundError:
+                pass
 
     # ------------------------------------------------------------------
     # Operazioni sui documenti
@@ -108,37 +116,62 @@ class FAISSStore:
         """Aggiunge i chunk *docs* al DB e aggiorna i metadati.
 
         Se il DB non è ancora stato creato fisicamente, lo inizializza con
-        :meth:`FAISS.from_documents`.  Altrimenti usa :meth:`FAISS.add_documents`.
-        Il DB viene salvato automaticamente dopo l'inserimento.
+        :meth:`FAISS.from_documents`. Se *filename* esiste già, i suoi vecchi
+        chunk vengono sostituiti dai nuovi. Il DB viene salvato automaticamente.
 
-        Args:
-            docs:     Lista di :class:`~langchain.schema.Document` da inserire.
+        Parametri:
+            docs:     Lista di :class:`~langchain_core.documents.Document` da inserire.
             filename: Nome del file sorgente (usato come chiave nei metadati).
 
-        Returns:
-            Numero di chunk aggiunti.
+        Restituisce:
+            Numero di chunk indicizzati per il documento.
         """
         if not docs:
             logger.warning("add_documents chiamato con lista vuota per '%s'.", filename)
             return 0
+
+        previous_entry = self._metadata.get_document(filename)
+        previous_ids = set(previous_entry.get("chunk_ids", [])) if previous_entry else set()
 
         if self._db is None:
             keys_before: set[str] = set()
             self._db = FAISS.from_documents(docs, get_embeddings())
         else:
             keys_before = set(self._db.docstore._dict.keys())
+            previous_ids.update(
+                doc_id
+                for doc_id, document in self._db.docstore._dict.items()
+                if document.metadata.get("source") == filename
+            )
             self._db.add_documents(docs)
 
         keys_after: set[str] = set(self._db.docstore._dict.keys())
         new_ids: list[str] = list(keys_after - keys_before)
 
-        # Aggiorna il modello di embedding nel metadata: rappresenta
-        # l'ultimo modello usato per generare gli embedding nel DB.
+        # Registra il modello insieme agli ID vecchi e nuovi prima di toccare
+        # l'indice, così un errore successivo non rende i vecchi chunk orfani.
         from ragchat.core.embeddings import _get_model_name
-        self._metadata.set_embedding_model(_get_model_name())
+        model_name = _get_model_name()
+        try:
+            self._metadata.add_document(
+                filename,
+                sorted(previous_ids | set(new_ids)),
+                embedding_model=model_name,
+            )
+        except OSError:
+            if new_ids:
+                self._db.delete(ids=new_ids)
+            if not self._db.docstore._dict:
+                self._db = None
+            raise
 
-        self._metadata.add_document(filename, new_ids)
+        existing_ids = set(self._db.index_to_docstore_id.values())
+        obsolete_ids = sorted(previous_ids & existing_ids)
+        if obsolete_ids:
+            self._db.delete(ids=obsolete_ids)
+
         self.save()
+        self._metadata.add_document(filename, new_ids)
 
         logger.info("Aggiunti %d chunk per '%s'.", len(new_ids), filename)
         return len(new_ids)
@@ -146,37 +179,42 @@ class FAISSStore:
     def remove_document(self, filename: str) -> bool:
         """Rimuove dal DB tutti i chunk associati a *filename*.
 
-        Poiché FAISS CPU non supporta la cancellazione per ID, il DB viene
-        ricostruito dai soli documenti rimanenti.
+        Elimina i vettori associati al documento usando gli ID FAISS, senza
+        ricostruire l'indice né modificare gli ID dei documenti rimanenti.
 
-        Args:
+        Parametri:
             filename: Nome del file da rimuovere.
 
-        Returns:
+        Restituisce:
             ``True`` se il documento era presente ed è stato rimosso,
             ``False`` se non era nel metadata store.
         """
         if self._db is None:
             return False
 
-        chunk_ids: list[str] = self._metadata.remove_document(filename)
-        if not chunk_ids:
+        entry = self._metadata.get_document(filename)
+        if entry is None:
             logger.warning("'%s' non trovato nel metadata store.", filename)
             return False
 
-        ids_to_remove = set(chunk_ids)
-        remaining_docs: list[Document] = [
-            doc
-            for doc_id, doc in self._db.docstore._dict.items()
-            if doc_id not in ids_to_remove
-        ]
+        indexed_ids = set(self._db.index_to_docstore_id.values())
+        ids_by_source = {
+            doc_id
+            for doc_id, document in self._db.docstore._dict.items()
+            if document.metadata.get("source") == filename
+        }
+        ids_to_remove = (set(entry.get("chunk_ids", [])) | ids_by_source) & indexed_ids
+        if ids_to_remove:
+            self._db.delete(ids=sorted(ids_to_remove))
 
-        if remaining_docs:
-            self._db = FAISS.from_documents(remaining_docs, get_embeddings())
-        else:
+        if not self._db.docstore._dict:
             self._db = None
 
-        self.save()
+        if self._db is None:
+            self._remove_saved_index()
+        else:
+            self.save()
+        self._metadata.remove_document(filename)
         logger.info("Documento '%s' rimosso (%d chunk eliminati).", filename, len(ids_to_remove))
         return True
 
@@ -190,14 +228,14 @@ class FAISSStore:
     def as_retriever(self, k: int = 4):
         """Restituisce un retriever LangChain per il DB.
 
-        Args:
+        Parametri:
             k: Numero di chunk da recuperare per ogni query.
 
-        Returns:
+        Restituisce:
             Istanza ``VectorStoreRetriever``.
 
-        Raises:
-            RuntimeError: Se il DB è vuoto (nessun documento indicizzato).
+        Solleva:
+            RuntimeError: se il DB è vuoto (nessun documento indicizzato).
         """
         if self._db is None:
             raise RuntimeError("Nessun documento nel DB")
