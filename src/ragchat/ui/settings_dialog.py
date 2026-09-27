@@ -6,6 +6,7 @@ clic di "Salva".
 """
 
 import logging
+import queue
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -417,6 +418,11 @@ class _AddModelDialog(tk.Toplevel):
         self.grab_set()
         self.transient(parent)
 
+        # Coda per trasferire callback dal thread worker al thread GUI.
+        # Tkinter non deve essere manipolato direttamente da thread secondari,
+        # soprattutto su Linux/X11 dove Tcl/Tk non e' thread-safe.
+        self._ui_queue: queue.Queue = queue.Queue()
+
         # Dizionario risultante; None finché l'utente non conferma
         self.result: Optional[dict[str, Any]] = None
 
@@ -427,6 +433,28 @@ class _AddModelDialog(tk.Toplevel):
         py = parent.winfo_rooty() + parent.winfo_height() // 2
         w, h = self.winfo_width(), self.winfo_height()
         self.geometry(f"+{px - w // 2}+{py - h // 2}")
+
+        self.after(50, self._process_ui_queue)
+
+    # ------------------------------------------------------------------
+    # Comunicazione worker → GUI
+    # ------------------------------------------------------------------
+
+    def _process_ui_queue(self) -> None:
+        """Esegue nel thread GUI le callback prodotte dai worker."""
+        try:
+            while True:
+                callback = self._ui_queue.get_nowait()
+                try:
+                    callback()
+                except Exception:
+                    logger.exception("Errore nell'esecuzione di una callback GUI")
+        except queue.Empty:
+            pass
+        try:
+            self.after(50, self._process_ui_queue)
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # Costruzione UI
@@ -532,7 +560,7 @@ class _AddModelDialog(tk.Toplevel):
             except Exception as exc:  # noqa: BLE001
                 result_holder["error"] = str(exc)
             finally:
-                self.after(0, _on_done)
+                self._ui_queue.put(_on_done)
 
         def _on_done() -> None:
             # Riabilita i pulsanti
@@ -610,6 +638,11 @@ class SettingsDialog(tk.Toplevel):
         self.resizable(True, True)
         self.grab_set()  # modale rispetto alla finestra principale
 
+        # Coda per trasferire callback dal thread worker al thread GUI.
+        # Tkinter non deve essere manipolato direttamente da thread secondari,
+        # soprattutto su Linux/X11 dove Tcl/Tk non e' thread-safe.
+        self._ui_queue: queue.Queue = queue.Queue()
+
         # Modello embedding del DB correntemente caricato (se presente)
         self._current_db_model = current_db_model
 
@@ -626,6 +659,28 @@ class SettingsDialog(tk.Toplevel):
         ph = parent.winfo_rooty() + parent.winfo_height() // 2
         w, h = self.winfo_width(), self.winfo_height()
         self.geometry(f"+{pw - w // 2}+{ph - h // 2}")
+
+        self.after(50, self._process_ui_queue)
+
+    # ------------------------------------------------------------------
+    # Comunicazione worker → GUI
+    # ------------------------------------------------------------------
+
+    def _process_ui_queue(self) -> None:
+        """Esegue nel thread GUI le callback prodotte dai worker."""
+        try:
+            while True:
+                callback = self._ui_queue.get_nowait()
+                try:
+                    callback()
+                except Exception:
+                    logger.exception("Errore nell'esecuzione di una callback GUI")
+        except queue.Empty:
+            pass
+        try:
+            self.after(50, self._process_ui_queue)
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # Costruzione UI
@@ -856,11 +911,10 @@ class SettingsDialog(tk.Toplevel):
                 from ragchat.core.huggingface import HuggingFace
 
                 def _on_progress(current: int, total: int) -> None:
-                    self.after(
-                        0,
+                    self._ui_queue.put(
                         lambda c=current, t=total: progress_dialog.update_progress(
                             c, t, f"Recupero modelli {label}..." if c < t else "Completato."
-                        ),
+                        )
                     )
 
                 hf = HuggingFace()
@@ -874,7 +928,7 @@ class SettingsDialog(tk.Toplevel):
             except Exception as exc:  # noqa: BLE001
                 result_holder["error"] = str(exc)
             finally:
-                self.after(0, _on_done)
+                self._ui_queue.put(_on_done)
 
         def _on_done() -> None:
             progress_dialog.destroy()
