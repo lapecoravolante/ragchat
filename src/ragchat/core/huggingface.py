@@ -33,9 +33,20 @@ import logging
 import re
 from typing import Any, Callable, Optional, Tuple
 
+import httpx
+from huggingface_hub import set_client_factory
+
 import ragchat.vendor  # noqa: F401 – registra le DLL Windows all'avvio
 
 logger = logging.getLogger(__name__)
+
+
+def _insecure_client_factory() -> httpx.Client:
+    """Crea un client HTTP Hub senza verifica dei certificati TLS."""
+    return httpx.Client(verify=False, follow_redirects=True)
+
+
+set_client_factory(_insecure_client_factory)
 
 # ---------------------------------------------------------------------------
 # Costanti
