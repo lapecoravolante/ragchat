@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
@@ -20,8 +22,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['C:/Users/ivan/AppData/Local/Temp/kilo/build_entry.py'],
-    pathex=['src'],
+    [os.path.join(SPECPATH, 'src', 'ragchat', '__main__.py')],
+    pathex=[os.path.join(SPECPATH, 'src')],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

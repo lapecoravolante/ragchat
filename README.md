@@ -99,10 +99,10 @@ uv run --with pyinstaller pyinstaller \
   --hidden-import "langchain_text_splitters.character" \
   --hidden-import "docling.document_converter" \
   --hidden-import "docling.datamodel.base_models" \
-  /percorso/al/file/build_entry.py
+  src/ragchat/__main__.py
 ```
 
-> Il file `build_entry.py` è uno script temporaneo che contiene:
+> `src/ragchat/__main__.py` è il punto d'ingresso dell'applicazione e contiene:
 > ```python
 > from ragchat import main
 > if __name__ == "__main__":
